@@ -36,3 +36,20 @@ class WorkerReconnectTests(unittest.TestCase):
         with patch.object(worker.bridge, 'api', return_value=mt5), patch.object(worker.bridge, 'checked_account', side_effect=DemoError('account changed')):
             with self.assertRaisesRegex(DemoError, 'account changed'):
                 worker.reconnect((123, 'demo'))
+
+
+class WorkerStartupTests(unittest.TestCase):
+    def test_startup_retries_transient_connection_failure(self):
+        mt5 = Mock()
+        mt5.initialize.side_effect = [False, True]
+        with patch.object(worker.time, 'sleep'):
+            self.assertTrue(worker.initialize_worker(mt5))
+        self.assertEqual(mt5.initialize.call_count, 2)
+        mt5.order_send.assert_not_called()
+
+    def test_startup_retries_are_bounded(self):
+        mt5 = Mock()
+        mt5.initialize.return_value = False
+        with patch.object(worker.time, 'sleep'):
+            self.assertFalse(worker.initialize_worker(mt5))
+        self.assertEqual(mt5.initialize.call_count, 3)

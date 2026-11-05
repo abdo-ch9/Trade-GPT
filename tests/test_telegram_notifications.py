@@ -37,7 +37,7 @@ class TelegramTests(unittest.TestCase):
             with patch.object(telegram, 'configuration', return_value={'TELEGRAM_BOT_TOKEN': 'secret', 'TELEGRAM_CHAT_ID': '123'}), patch.object(telegram, 'send_message', return_value=False):
                 telegram.poll_once(db, state)
                 cursor = json.loads(state.read_text())['cursor']
-                record('decision', 'XAUUSD: sell', {'action': 'SELL setup'}, db_path=db)
+                record('decision', 'XAUUSD: sell', {'action': 'SELL setup', 'direction': 'SELL'}, db_path=db)
                 telegram.poll_once(db, state)
                 self.assertEqual(json.loads(state.read_text())['cursor'], cursor)
                 self.assertNotIn('secret', state.read_text())
@@ -51,3 +51,18 @@ class TelegramTests(unittest.TestCase):
         import requests
         with patch.object(telegram.requests, 'post', side_effect=requests.Timeout('secret URL')):
             self.assertFalse(telegram.send_message({'TELEGRAM_BOT_TOKEN': 'secret', 'TELEGRAM_CHAT_ID': '123'}, 'test'))
+
+    def test_directionless_decisions_are_skipped_and_buy_is_sent(self):
+        with tempfile.TemporaryDirectory() as folder:
+            db, state = Path(folder)/'events.sqlite3', Path(folder)/'state.json'
+            record('worker', 'start', db_path=db)
+            with patch.object(telegram, 'configuration', return_value={'TELEGRAM_BOT_TOKEN': 'secret', 'TELEGRAM_CHAT_ID': '123'}), patch.object(telegram, 'send_message', return_value=True) as send:
+                telegram.poll_once(db, state)
+                for direction in ('NONE', 'NEUTRAL', None, 'MIXED'):
+                    record('decision', 'XAUUSD: no setup', {'direction': direction, 'action': 'NO SETUP'}, db_path=db)
+                telegram.poll_once(db, state)
+                send.assert_not_called()
+                record('decision', 'XAUUSD: buy', {'direction': 'BUY', 'action': 'BUY setup'}, db_path=db)
+                telegram.poll_once(db, state)
+                send.assert_called_once()
+                self.assertIn('Chart direction: BUY', send.call_args.args[1])

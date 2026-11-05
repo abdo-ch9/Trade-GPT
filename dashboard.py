@@ -34,6 +34,24 @@ def workspace():
         symbol=st.selectbox('Exact gold instrument',[s.name for s in choices])
         info=next(s for s in choices if s.name==symbol)
         st.caption(f'{symbol} · contract size {info.trade_contract_size:g} · equity {account.equity:,.2f} {account.currency}')
+        with st.expander('Forward demo performance and execution review'):
+            from scalp_lab.forward_report import summarize
+            forward = summarize(identity, auto_demo.JOURNAL)
+            metrics = st.columns(4)
+            metrics[0].metric('Closed demo trades', forward['closed_trades'])
+            metrics[1].metric('Net realized P&L', f"{forward['net_pnl']:.2f} {account.currency}")
+            metrics[2].metric('Unresolved entries', forward['unresolved_entries'])
+            metrics[3].metric('Unresolved exits', forward['unresolved_exits'])
+            st.caption(forward['note'])
+            st.caption('Drawdown below follows entry order and closed results; it is not an intraday equity drawdown. R uses estimated entry stop risk, including realized costs in the numerator.')
+            st.write({k: forward[k] for k in ('states', 'win_rate', 'profit_factor', 'mean_r', 'max_closed_drawdown', 'commission', 'swap', 'fee', 'mean_latency_seconds')})
+            if forward['unresolved_entries'] or forward['unresolved_exits']:
+                st.warning('Broker/journal outcomes need review. Do not retry ambiguous orders blindly.')
+            if forward['trades']:
+                st.dataframe(forward['trades'], hide_index=True, width='stretch')
+            else:
+                st.info('No reconciled closed bot trades for this account yet. Signals and blocked decisions are not counted as executed trades.')
+            st.download_button('Download forward demo report', json.dumps(forward, indent=2), 'forward_demo_report.json')
         with st.expander('Historical evaluation',expanded=True):
             st.write('Fixed rules; chronological 60/40 development/holdout split, four holdout time blocks, 15-minute simulated hold, daily bootstrap uncertainty and doubled-cost stress test.')
             if st.button('Fetch gold history and evaluate',key='gold_evaluate'):
@@ -47,7 +65,8 @@ def workspace():
                     bars=pd.DataFrame(rates)
                     bars=bars[bars.time+60<=time.time()+offset*3600]
                     report,trades=gold.evaluate(bars,symbol,info.point)
-                    gold.REPORT.write_text(json.dumps(report,indent=2),encoding='utf-8')
+                    from scalp_lab.gold_storage import write_json
+                    write_json(gold.REPORT, report)
                     bars.to_csv(gold.ROOT/'gold_history.csv',index=False)
                     trades.to_csv(gold.ROOT/'gold_research_trades.csv',index=False)
             try:

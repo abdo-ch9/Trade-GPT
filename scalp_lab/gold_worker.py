@@ -52,6 +52,16 @@ def reconnect(identity):
         bridge.checked_account(mt5, identity)
 
 
+def initialize_worker(mt5):
+    """Bounded recovery when the terminal is still starting; no orders are sent."""
+    for attempt in range(3):
+        if mt5.initialize(timeout=10000):
+            return True
+        if attempt < 2:
+            time.sleep(2)
+    return False
+
+
 def run():
     import msvcrt
     try:
@@ -104,7 +114,7 @@ def run():
                     record('error',str(exc),{'traceback':traceback.format_exc()})
             time.sleep(5)
     mt5=bridge.api()
-    if not mt5.initialize(timeout=10000):
+    if not initialize_worker(mt5):
         record('error','Cannot initialize MT5 for background gold worker.')
         return
     scanner=threading.Thread(target=scan_loop,daemon=True)

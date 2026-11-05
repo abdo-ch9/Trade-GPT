@@ -78,11 +78,23 @@ TELEGRAM_CHAT_ID=your_private_chat_id
 Obtain your chat ID from the `message.chat.id` field returned by the Telegram
 Bot API `getUpdates` after messaging your bot. Keep token-bearing URLs private.
 The running gold worker reads these settings automatically. On first activation,
-it skips old events and starts with future decisions. Decision changes include
-blocked signals and no-setup transitions; identical repeated decisions are
+it skips old events and starts with future decisions. Only decisions with BUY or SELL chart direction are sent, including blocked
+directional setups. No-setup and directionless decisions are skipped; repeated identical decisions are
 suppressed across worker restarts. Messages show indicative levels and reasons,
 and do not confirm broker fills. Notifications require the local worker to run.
 Delivery failures are isolated from trading; local `telegram_notifications.json`
 records delivery status. Failed requests are retried; an ambiguous timeout may
 produce a duplicate message. Events older than five minutes are not delivered.
 Remove either setting to disable notifications.
+
+
+## Forward demo review
+
+The dashboard's forward-performance panel reads the current account's bot journal.
+It reports reconciled closed-trade net P&L (including recorded commission, swap and
+fees), stop-risk-normalized returns, submission latency and unresolved outcomes.
+Its drawdown uses closed results in entry order, not marked-to-market equity.
+Open trades and signals are not counted as completed trades. Download the JSON
+report to retain the evidence from each test period. These diagnostics do not
+validate profitability or authorize live trading; the demo-only broker block stays
+in place. Worker startup retries transient MT5 initialization failures three times.

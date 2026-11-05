@@ -60,6 +60,10 @@ def poll_once(db_path=DB, state_path=STATE):
     for row in rows:
         if row['kind'] == 'decision' and time.time()-row['time'] < 300:
             detail = json.loads(row['details'])
+            if detail.get('direction') not in ('BUY', 'SELL'):
+                state['cursor'] = row['id']
+                write_json(state_path, state)
+                continue
             symbol = detail.get('symbol') or row['message'].split(':', 1)[0]
             signature = hashlib.sha256(json.dumps([
                 detail.get('action', row['message']), detail.get('direction'), detail.get('setup'),
