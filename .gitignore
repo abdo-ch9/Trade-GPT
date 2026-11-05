@@ -1,0 +1,41 @@
+# Local credentials and environments
+
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+
+# Editor and IDE settings
+.vscode/
+.idea/
+*.iml
+
+# Python and test caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.test_tmp/
+*.lock
+
+# Local market data and generated research output
+data/
+demo_data/
+auto_live/
+live_*/
+results_*/
+gold_history.csv
+gold_research_trades.csv
+gold_validation*.json
+gold_improvement_review.json
+gold_migration_settings.json
+*-preview.png
+
+# Broker sessions, order journals, and worker output
+*.sqlite3
+*.sqlite3-*
+xm_auto_demo*.json
+gold_worker_status.json
+*.log
