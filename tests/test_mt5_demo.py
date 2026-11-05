@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace as NS
 from unittest.mock import Mock,patch
-from scalp_lab.mt5_demo import DemoError,preview,submit,quote
+from scalp_lab.mt5_demo import DemoError,checked_account,preview,submit,quote
 
 
 def terminal():
@@ -13,7 +13,7 @@ def terminal():
            ORDER_FILLING_FOK=0,ORDER_FILLING_IOC=1,ORDER_FILLING_RETURN=2,
            TRADE_ACTION_DEAL=1,ORDER_TYPE_BUY=0,ORDER_TYPE_SELL=1,ORDER_TIME_GTC=0,
            TRADE_RETCODE_DONE=10009,TRADE_RETCODE_DONE_PARTIAL=10010,TRADE_RETCODE_PLACED=10008)
-    mt5.account_info=Mock(return_value=NS(login=123,server="XMGlobal-Demo",company="XM Global",trade_mode=0,trade_allowed=True,trade_expert=True,currency="USD"))
+    mt5.account_info=Mock(return_value=NS(login=123,server="ICMarketsSC-Demo",company="IC Markets Global",trade_mode=0,trade_allowed=True,trade_expert=True,currency="USD"))
     mt5.terminal_info=Mock(return_value=NS(connected=True,trade_allowed=True,tradeapi_disabled=False))
     mt5.symbol_select=Mock(return_value=True)
     mt5.symbol_info=Mock(return_value=NS(trade_mode=4,volume_min=0.01,volume_max=10.0,volume_step=0.01,
@@ -29,7 +29,16 @@ def terminal():
 
 
 class DemoTradeTests(unittest.TestCase):
-    identity=(123,"XMGlobal-Demo")
+    identity=(123,"ICMarketsSC-Demo")
+
+    def test_only_ic_markets_demo_accounts_are_accepted(self):
+        m=terminal()
+        self.assertIsNotNone(checked_account(m,self.identity))
+        for company,server in (("XM Global","XMGlobal-Demo"),("Other Broker","Other-Demo")):
+            m.account_info.return_value.company=company
+            m.account_info.return_value.server=server
+            with self.assertRaisesRegex(DemoError,"not identified as IC Markets"):
+                checked_account(m)
 
     def test_server_time_conversion_and_staleness(self):
         m=terminal()

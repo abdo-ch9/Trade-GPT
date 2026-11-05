@@ -84,7 +84,7 @@ def assess_chart(bars, point, bid, ask, server_now, news, min_stop=0, now=None):
         result['reasons'].append(reason)
         return result
     if d.empty:
-        return block('DATA UNAVAILABLE','No usable completed XM candles.')
+        return block('DATA UNAVAILABLE','No usable completed IC Markets candles.')
     age = server_now-(float(d.iloc[-1].time)+60)
     result['candle_age_seconds'] = age
     if not 0 <= age <= 90:
@@ -145,7 +145,7 @@ def snapshot(identity, symbol, offset, horizon=5, include_headlines=False):
         mt5 = bridge.api()
         bridge.checked_account(mt5,identity)
         if not mt5.symbol_select(symbol,True):
-            raise bridge.DemoError('Cannot subscribe to this XM instrument.')
+            raise bridge.DemoError('Cannot subscribe to this IC Markets instrument.')
         mt5.copy_rates_from_pos(symbol,mt5.TIMEFRAME_M1,0,361)
     news = get_news(symbol, include_headlines=include_headlines)
     rates = recent_rates(mt5,symbol,offset)
@@ -153,7 +153,7 @@ def snapshot(identity, symbol, offset, horizon=5, include_headlines=False):
         bridge.checked_account(mt5,identity)
         info = mt5.symbol_info(symbol)
         if info is None or rates is None or not len(rates):
-            raise bridge.DemoError('XM chart data unavailable. Open this instrument’s M1 chart in MT5.')
+            raise bridge.DemoError('IC Markets chart data unavailable. Open this instrument’s M1 chart in MT5.')
         tick = bridge.quote(mt5,symbol,offset)
     observed = time.time()
     result = assess_chart(pd.DataFrame(rates),info.point,tick.bid,tick.ask,observed+offset*3600,
@@ -200,7 +200,7 @@ def recent_rates(mt5, symbol, offset):
 def render(identity, symbol, offset):
     import streamlit as st
     import plotly.graph_objects as go
-    st.markdown('### XM chart and news decision')
+    st.markdown('### IC Markets chart and news decision')
     st.caption('M1 + M5 chart rules; AI interprets recent sourced headlines. No local model training. Experimental demo strategy; no validated win-rate claim.')
     try:
         result, _ = snapshot(identity,symbol,offset,include_headlines=True)
@@ -226,7 +226,7 @@ def render(identity, symbol, offset):
             for field in ('ema9','ema21'):
                 fig.add_scatter(x=x,y=chart[field],name=field.upper(),mode='lines',connectgaps=False)
             fig.update_layout(height=400,template='plotly_dark',xaxis_rangeslider_visible=False,uirevision=symbol,
-                              title=f'{symbol} · XM M1 candles · broker server time')
+                              title=f'{symbol} · IC Markets M1 candles · broker server time')
             st.plotly_chart(fig,width='stretch',key='xm_chart_news_chart')
         if result['scenarios']:
             st.write('**Dynamic entry, stop and target scenarios**')

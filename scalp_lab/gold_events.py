@@ -35,3 +35,14 @@ def recent(limit=50,db_path=DB):
             return [dict(r) for r in db.execute('SELECT * FROM events ORDER BY id DESC LIMIT ?',(limit,))]
     except PermissionError:
         return []
+
+
+def latest_trade_notice(events, now=None):
+    """Only recent broker activity belongs in the prominent trade banner.
+
+    Connection/errors remain in history; live worker state reports current faults.
+    """
+    now = time.time() if now is None else now
+    kinds = {'entry_filled', 'entry_unknown', 'entry_rejected', 'closed', 'exit_sent'}
+    return next((event for event in events
+                 if event['kind'] in kinds and 0 <= now-event['time'] < 300), None)

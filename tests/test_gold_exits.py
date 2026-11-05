@@ -17,7 +17,7 @@ class TimedExitTests(unittest.TestCase):
         self.tmp=tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.db=Path(self.tmp.name)/'journal.db'
-        self.identity=[123,'XM-Demo']
+        self.identity=[123,'ICMarketsSC-Demo']
         self.now=time.time()
         self.context={'exit_policy':exits.EXIT_POLICY,'symbol':'GOLD','type':0,'volume':.01,
                       'magic':auto.MAGIC,'offset':2,'filling':0,'deadline_utc':self.now-1}

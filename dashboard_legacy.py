@@ -15,7 +15,7 @@ button {transition:background .2s,transform .2s;}
 button:active {transform:translateY(1px);}
 </style>""",unsafe_allow_html=True)
 st.title("Asset signal desk")
-st.warning("Research and optional automatic XM demo trading. Model scores are uncalibrated. Real-money accounts are blocked.")
+st.warning("Research and optional automatic IC Markets demo trading. Model scores are uncalibrated. Real-money accounts are blocked.")
 base_dir=Path(__file__).resolve().parent
 def render_planner(bars, reference, reference_time, symbol, settings, report):
     st.subheader("Paper trade planner")
@@ -74,7 +74,7 @@ def render_planner(bars, reference, reference_time, symbol, settings, report):
     a.metric("Position value",f"${entry*qty:,.2f}")
     b.metric("Loss at stop, before costs",f"${entry*qty*sl/10000:,.2f}")
     c.metric("Profit at target, before costs",f"${entry*qty*tp/10000:,.2f}")
-    st.caption("Actual fills, gaps, spreads and fees can change outcomes. Short availability depends on the broker instrument. This stock planner places no orders; XM demo trades have separate manual and automatic controls.")
+    st.caption("Actual fills, gaps, spreads and fees can change outcomes. Short availability depends on the broker instrument. This stock planner places no orders; IC Markets demo trades have separate manual and automatic controls.")
 
 
 @st.fragment(run_every="5s")

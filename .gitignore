@@ -39,3 +39,7 @@ gold_migration_settings.json
 xm_auto_demo*.json
 gold_worker_status.json
 *.log
+
+gold_dashboard_snapshot.json
+
+telegram_notifications.json

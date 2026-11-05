@@ -31,14 +31,19 @@ CURRENCIES = {'EUR':'euro', 'USD':'US dollar', 'GBP':'British pound',
 
 def configuration():
     local = dotenv_values(ROOT / '.env')
-    setting = lambda name, default='': (os.getenv(name) or local.get(name) or default).strip()
-    provider = setting('XM_NEWS_PROVIDER','openai').lower()
+    def setting(name, default='', legacy_name=None):
+        return (os.getenv(name) or local.get(name) or
+                (os.getenv(legacy_name) or local.get(legacy_name) if legacy_name else '') or
+                default).strip()
+    provider = setting('IC_MARKETS_NEWS_PROVIDER','openai','XM_NEWS_PROVIDER').lower()
     key = setting('OPENAI_API_KEY')
     if key.startswith('YOUR_'):
         key = ''
-    model = setting('XM_OLLAMA_MODEL','qwen2.5:7b-instruct') if provider=='ollama' else setting('XM_NEWS_MODEL','gpt-4.1-mini')
+    model = (setting('IC_MARKETS_OLLAMA_MODEL','qwen2.5:7b-instruct','XM_OLLAMA_MODEL')
+             if provider=='ollama' else
+             setting('IC_MARKETS_NEWS_MODEL','gpt-4.1-mini','XM_NEWS_MODEL'))
     return {'provider':provider, 'key':key, 'model':model,
-            'url':setting('XM_OLLAMA_URL','http://127.0.0.1:11434').rstrip('/')}
+            'url':setting('IC_MARKETS_OLLAMA_URL','http://127.0.0.1:11434','XM_OLLAMA_URL').rstrip('/')}
 
 
 def local_ollama_url(url):
@@ -56,7 +61,7 @@ def connection_status(config=None):
         return bool(config['key']), ('OpenAI news configured.' if config['key'] else
                                     'Configure Ollama locally or add OPENAI_API_KEY to .env.')
     if config['provider']!='ollama':
-        return False, 'Unsupported XM_NEWS_PROVIDER. Choose ollama or openai.'
+        return False, 'Unsupported IC_MARKETS_NEWS_PROVIDER. Choose ollama or openai.'
     key = (config['url'],config['model'])
     now = time.time()
     with LOCK:
@@ -69,9 +74,9 @@ def connection_status(config=None):
         response.raise_for_status()
         models = {m['name'] for m in response.json().get('models',[])}
         result = (True, f"Ollama · {config['model']}") if config['model'] in models else (
-            False, f"Ollama is running, but model {config['model']} is not installed. Set XM_OLLAMA_MODEL to an installed model.")
+            False, f"Ollama is running, but model {config['model']} is not installed. Set IC_MARKETS_OLLAMA_MODEL to an installed model.")
     except (requests.RequestException,ValueError,TypeError,KeyError):
-        result = False, 'Ollama is unavailable. Start Ollama and check XM_OLLAMA_URL in .env (local computer only).'
+        result = False, 'Ollama is unavailable. Start Ollama and check IC_MARKETS_OLLAMA_URL in .env (local computer only).'
     with LOCK:
         HEALTH[key] = (now,result)
     return result
@@ -79,7 +84,7 @@ def connection_status(config=None):
 
 def pair_name(symbol):
     if symbol.upper() in ('GOLD','XAUUSD'):
-        return 'XAU/USD (spot gold priced in US dollars; XM CFD, not COMEX futures)'
+        return 'XAU/USD (spot gold priced in US dollars; IC Markets CFD, not COMEX futures)'
     # Only use a recognized leading FX pair; broker suffixes are retained in the UI.
     match = re.match(r'^([A-Z]{3})([A-Z]{3})', symbol.upper())
     if match and all(c in CURRENCIES for c in match.groups()):
@@ -196,7 +201,7 @@ def interpret(symbol, articles, key, model, now, provider='openai', base_url='ht
     return verdict
 
 
-def get_news(symbol, include_headlines=False):
+def get_news(symbol, include_headlines=False, force_refresh=False):
     now = time.time()
     config = configuration()
     connected, connection_reason = connection_status(config)
@@ -206,7 +211,7 @@ def get_news(symbol, include_headlines=False):
                  include_headlines if not connected else False)
     with LOCK:
         cached = CACHE.get(cache_key)
-        if cached and 0 <= now-cached['checked_at'] < (TTL if cached['status']=='ready' else 30):
+        if not force_refresh and cached and 0 <= now-cached['checked_at'] < (TTL if cached['status']=='ready' else 30):
             return cached
     result = {'status':'not_connected', 'reason':connection_reason,
               'provider':config['provider'],'model':model,
@@ -231,3 +236,38 @@ def get_news(symbol, include_headlines=False):
             CACHE.pop(next(iter(CACHE)))
         CACHE[cache_key] = result
     return result
+
+
+BACKGROUND = {}
+BACKGROUND_RUNNING = set()
+BACKGROUND_LOCK = threading.Lock()
+
+
+def get_news_background(symbol, include_headlines=True):
+    """Return immediately; one refresh per symbol/config runs off the scanner thread."""
+    config = configuration()
+    token = (symbol, config['provider'], config['url'], config['model'],
+             hashlib.sha256(config['key'].encode()).hexdigest())
+    now = time.time()
+    with BACKGROUND_LOCK:
+        cached = BACKGROUND.get(token)
+        retry_after = 240 if cached and cached.get('status') == 'ready' else 30
+        if token not in BACKGROUND_RUNNING and (not cached or now-cached.get('checked_at', 0) >= retry_after):
+            BACKGROUND_RUNNING.add(token)
+            def refresh():
+                try:
+                    result = get_news(symbol, include_headlines=True, force_refresh=True)
+                    with BACKGROUND_LOCK:
+                        BACKGROUND[token] = result
+                except Exception:
+                    with BACKGROUND_LOCK:
+                        BACKGROUND[token] = {'status': 'unavailable', 'checked_at': time.time(),
+                                             'reason': 'Background news refresh failed; entries remain blocked.'}
+                finally:
+                    with BACKGROUND_LOCK:
+                        BACKGROUND_RUNNING.discard(token)
+            threading.Thread(target=refresh, daemon=True, name='gold-news-refresh').start()
+        if cached:
+            return dict(cached)
+    return {'status': 'refreshing', 'reason': 'News refresh in progress; entries remain blocked until current evidence is ready.',
+            'checked_at': 0, 'expires_at': 0, 'articles': []}

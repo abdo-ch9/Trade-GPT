@@ -1,5 +1,8 @@
+import json
+import time
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 import numpy as np
 import pandas as pd
 from scalp_lab import gold
@@ -69,8 +72,18 @@ class GoldTests(unittest.TestCase):
     def test_small_sample_cannot_validate(self):
         report,_=gold.evaluate(bars(),'GOLD',.01)
         self.assertFalse(report['eligible'])
+        self.assertEqual(report['broker'],gold.bridge.BROKER_NAME)
         self.assertEqual(len(report['chronological_folds']),4)
         self.assertEqual(report['execution_policy'],'signal-close-plus-15m-v1')
+
+    def test_old_broker_evaluation_cannot_authorize_entries(self):
+        report={'broker':'XM','engine':gold.ENGINE,'symbol':'GOLD',
+                'created_at':time.time(),'execution_policy':gold.EXIT_POLICY,
+                'eligible':True,'reason':'old report'}
+        with patch.object(gold,'REPORT',SimpleNamespace(read_text=lambda:json.dumps(report))):
+            valid,reason=gold.validation('GOLD')
+        self.assertFalse(valid)
+        self.assertIn('IC Markets',reason)
 
     def test_previously_viewed_history_cannot_authorize(self):
         b=bars()

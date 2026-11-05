@@ -36,7 +36,7 @@ class AutoDemoTests(unittest.TestCase):
 
         self.mt5.account_info.return_value.equity=10000
 
-        self.config={'enabled':True,'identity':[123,'XMGlobal-Demo'],'symbols':['GOLD'],
+        self.config={'enabled':True,'identity':[123,'ICMarketsSC-Demo'],'symbols':['GOLD'],
 
                      'offset':2,'lots':.01,'max_entries':5,'daily_loss_fraction':.01,
 
@@ -184,7 +184,7 @@ class AutoDemoTests(unittest.TestCase):
 
         self.mt5.positions_get.return_value=[SimpleNamespace(symbol='Tesla',volume=.1,sl=379.04,type=0)]
 
-        with patch.object(auto.bridge,'quote',side_effect=DemoError('No fresh XM quote for Tesla.')):
+        with patch.object(auto.bridge,'quote',side_effect=DemoError('No fresh IC Markets quote for Tesla.')):
 
             with self.assertRaisesRegex(DemoError,'Account risk check blocked: an existing Tesla position'):
 
@@ -366,12 +366,12 @@ class AutoDemoTests(unittest.TestCase):
 
         from contextlib import nullcontext
 
-        from scalp_lab import gold as xm_chart
+        from scalp_lab import gold as gold_module
 
         self.config['enabled']=False
 
         with patch.object(auto,'process_guard',return_value=nullcontext()), \
-             patch.object(xm_chart,'snapshot',return_value=({'action':'SELL setup'},{})), \
+             patch.object(gold_module,'snapshot',return_value=({'action':'SELL setup'},{})), \
              patch.object(auto,'execute') as execute:
 
             with self.assertRaises(DemoError):
@@ -406,7 +406,7 @@ class AutoDemoTests(unittest.TestCase):
 
         from contextlib import nullcontext
 
-        from scalp_lab import gold as xm_chart
+        from scalp_lab import gold as gold_module
 
         self.result['news']['articles'][0]['url']='https://example.com/news'
 
@@ -416,7 +416,7 @@ class AutoDemoTests(unittest.TestCase):
              patch.object(auto,'record_day'), patch.object(auto,'save_status'), \
              patch.object(auto,'LAST_SCAN',0), patch.object(auto,'CURSOR',0), \
              patch.object(auto,'STATUS',{}), \
-             patch.object(xm_chart,'snapshot',return_value=(self.result,{})) as snapshot:
+             patch.object(gold_module,'snapshot',return_value=(self.result,{})) as snapshot:
 
             auto.scan(self.config['identity'],2)
 
@@ -651,4 +651,3 @@ class AutoDemoTests(unittest.TestCase):
 
 
 if __name__=='__main__':unittest.main()
-

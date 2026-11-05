@@ -1,4 +1,4 @@
-"""Gold-only XM demo research desk. Legacy dashboard archived separately."""
+"""IC Markets gold demo research desk. Legacy dashboard archived separately."""
 import json
 import time
 import pandas as pd
@@ -8,28 +8,28 @@ from scalp_lab import gold, mt5_demo as bridge, auto_demo
 
 st.set_page_config(page_title='Gold research desk',layout='wide')
 st.title('Gold research desk')
-st.caption('XAU/USD · XM demo · 0.01 lot · M1 / M5 / M15')
+st.caption('XAU/USD · IC Markets demo · 0.01 lot · M1 / M5 / M15')
 st.info('Entries require a named chart setup, current sourced AI news and broker risk checks. In user-approved demo research mode, historical validation is advisory. No win-rate guarantee.')
 
 
 @st.fragment(run_every='10s')
 def workspace():
     offset=st.selectbox('Broker timestamp convention',[2,3,0],format_func=lambda x:f'UTC + {x} hours',key='gold_offset')
-    st.caption('Match the existing XM terminal setting; timestamps are never adjusted to hide stale data.')
-    if st.button('Connect XM demo',key='gold_connect'):
+    st.caption('Match the IC Markets MT5 server time offset; timestamps are never adjusted to hide stale data.')
+    if st.button('Connect IC Markets demo',key='gold_connect'):
         try:
             st.session_state.gold_identity=bridge.connect()
         except bridge.DemoError as exc:
             st.error(str(exc))
     identity=st.session_state.get('gold_identity')
     if not identity:
-        st.info('Connect the installed XM demo terminal to load gold prices and analysis.')
+        st.info('Connect the installed IC Markets MT5 demo terminal to load gold prices and analysis.')
         return
     try:
         account,instruments=bridge.inspect(identity)
         choices=[s for s in instruments if gold.eligible_symbol(s)]
         if not choices:
-            st.warning('XM GOLD / XAUUSD is not available on this account.')
+            st.warning('IC Markets GOLD / XAUUSD is not available on this account.')
             return
         symbol=st.selectbox('Exact gold instrument',[s.name for s in choices])
         info=next(s for s in choices if s.name==symbol)
@@ -52,7 +52,7 @@ def workspace():
                     trades.to_csv(gold.ROOT/'gold_research_trades.csv',index=False)
             try:
                 report=json.loads(gold.REPORT.read_text())
-                if report.get('symbol')==symbol:
+                if report.get('symbol')==symbol and report.get('broker')==bridge.BROKER_NAME:
                     cols=st.columns(4)
                     values=report['holdout']
                     cols[0].metric('Holdout trades',values['trades'])
@@ -69,12 +69,60 @@ def workspace():
                     st.caption(report['limitations'])
                     st.caption('Costs: bar spread, adverse slippage of max(1 tick, 5% of M1 ATR) per fill, assumed $0.10/oz round-trip commission. Stops win same-bar collisions. Actual broker costs may differ.')
                     st.download_button('Download evaluation',json.dumps(report,indent=2),'gold_validation.json')
+                else:
+                    st.info('No current IC Markets evaluation for this instrument. Run a fresh evaluation using this account’s gold history.')
             except (OSError,ValueError,KeyError):
                 st.info('No gold evaluation yet.')
-        with st.spinner('Reading gold structure and sourced news…'):
+        from scalp_lab.gold_worker import status as worker_status, healthy as worker_healthy, ensure_running
+        from scalp_lab.gold_snapshot import read as read_snapshot
+        config = auto_demo.settings()
+        worker = worker_status()
+        st.subheader('Current automation status')
+        from scalp_lab.telegram_notifications import configuration as telegram_configuration, STATE as telegram_state
+        with st.expander('Telegram decision notifications'):
+            if all(telegram_configuration().values()):
+                st.caption('Telegram configured. New decision changes are sent by the background worker.')
+                try:
+                    delivery = json.loads(telegram_state.read_text(encoding='utf-8'))
+                    st.write('Delivery status: '+delivery.get('status', 'Waiting'))
+                except (OSError, ValueError):
+                    st.caption('Waiting for notification worker initialization.')
+            else:
+                st.info('Add TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID to your local .env file to activate decision notifications. See README for setup.')
+
+        state_cols = st.columns(3)
+        state_cols[0].metric('Entries', 'Enabled' if config.get('enabled') else 'Stopped')
+        state_cols[1].metric('Exit watchdog', 'Healthy' if worker_healthy(worker) else 'Unavailable')
+        scan_age = time.time()-worker.get('last_scan', 0)
+        state_cols[2].metric('Last completed scan', f'{scan_age:.0f}s ago' if worker.get('last_scan') else 'Waiting')
+        st.caption('MT5 connection verified for the displayed account. Scanner: '+worker.get('scanner', 'Not started'))
+        if worker.get('exit_error'):
+            st.warning('Current exit-watchdog issue: '+worker['exit_error'])
+        if config.get('enabled'):
+            ensure_running()
+            result = read_snapshot(identity, symbol, offset)
+            if result is None or not worker_healthy(worker):
+                st.warning('Waiting for a fresh worker snapshot. Previous signals are not actionable.')
+                auto_demo.render(identity, [info], offset)
+                return
+            st.caption(f"Shared worker snapshot · {result['snapshot_age_seconds']:.0f}s old")
+        else:
             result,_=gold.snapshot(identity,symbol,offset)
-        from scalp_lab.gold_decisions import save as save_decision
-        save_decision(identity,symbol,result)
+            from scalp_lab.gold_decisions import save as save_decision
+            save_decision(identity,symbol,result)
+        try:
+            from scalp_lab.gold_snapshot import risk_summary
+            risk = risk_summary(identity, config)
+            risk_cols = st.columns(3)
+            risk_cols[0].metric('Daily risk budget', f"{risk['budget']:.2f} {risk['currency']}")
+            risk_cols[1].metric('Remaining risk budget', f"{risk['remaining']:.2f} {risk['currency']}")
+            risk_cols[2].metric('Entry attempts today', f"{risk['attempts']} / 5")
+            st.caption('Remaining budget deducts daily equity loss and reserved position stop risk. Each new entry also requires a 20% cost reserve. Execution rechecks these values.')
+        except bridge.DemoError as exc:
+            st.warning('Current risk budget unavailable: '+str(exc))
+        news = result.get('news', {})
+        news_age = time.time()-news.get('checked_at', 0)
+        st.caption(f"News: {news.get('status', 'unavailable')} · "+(f'{news_age:.0f}s old' if news.get('checked_at') else 'refreshing'))
         cols=st.columns(4)
         cols[0].metric('Decision',result['action'])
         cols[1].metric('Market regime',result['regime'])
@@ -101,11 +149,11 @@ def workspace():
                 st.link_button(article['title'],article['url'])
         with st.expander('Inputs and limitations'):
             st.dataframe([
-                {'Input':'XM M1/M5/M15 price, spread, ATR, RSI, structure','Status':'Measured / calculated'},
+                {'Input':'IC Markets M1/M5/M15 price, spread, ATR, RSI, structure','Status':'Measured / calculated'},
                 {'Input':'VWAP and relative volume','Status':'Tick-volume proxies; not consolidated traded volume'},
                 {'Input':'Gold macro headlines','Status':'Ollama assessment of cited recent headlines'},
                 {'Input':'DXY, Treasury / real yields, economic calendar','Status':'Not connected; no scheduled-event blackout guarantee'},
-                {'Input':'COMEX depth, delta, open interest, real volume profile','Status':'Not connected; never inferred from XM ticks'},
+                {'Input':'COMEX depth, delta, open interest, real volume profile','Status':'Not connected; never inferred from IC Markets ticks'},
                 {'Input':'ML probabilities / 60% win rate','Status':'No calibrated probability claim'}],hide_index=True)
             st.write('Setups: aligned M5/M15 trend pullback; breakout retest anchored to the original broken level; range sweep. ATR defines stops; target is 1.8R. New bot entries share the backtest deadline: 15 minutes after the signal candle closes, with earlier broker SL/TP exits. Actual timed fills can be delayed by quote/connection availability.')
         if not auto_demo.settings().get('enabled'):

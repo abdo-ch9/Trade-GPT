@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 from . import mt5_demo as bridge
 from .xm_chart import indicators, news_gate, add_scenario_risk
-from .xm_news import get_news
+from .xm_news import get_news_background as get_news
 from .gold_exits import EXIT_POLICY, HOLD_BARS
 
 ENGINE='gold-structure-v2'
@@ -98,8 +98,9 @@ def levels(row,side,entry,spread,min_stop=0,point=.01):
 def validation(symbol):
     try:
         r=json.loads(REPORT.read_text())
-        if r.get('engine')!=ENGINE or r.get('symbol')!=symbol or r.get('execution_policy')!=EXIT_POLICY or not 0<=time.time()-r['created_at']<7*86400:
-            return False,'Run a current historical evaluation for this exact gold instrument and the 15-minute hold.'
+        if (r.get('broker')!=bridge.BROKER_NAME or r.get('engine')!=ENGINE or r.get('symbol')!=symbol
+            or r.get('execution_policy')!=EXIT_POLICY or not 0<=time.time()-r['created_at']<7*86400):
+            return False,'Run a current IC Markets historical evaluation for this exact gold instrument and the 15-minute hold.'
         if r.get('eligible') and not r.get('live_exit_validated',False):
             return False,'Chart research passed, but matching live exit management and forward paper validation are still required.'
         return r['eligible'],r['reason']
@@ -314,7 +315,7 @@ def evaluate(bars,symbol,point):
         reason='Chart cost tests passed on bars after the previously inspected sample; current news and execution checks still required.'
     else:
         reason='Research only: positive expectancy is not established on unseen bars across holdout periods, daily bootstrap uncertainty and doubled costs (minimum 50 trades / 10 traded sessions).'
-    report={'engine':ENGINE,'symbol':symbol,'created_at':time.time(),'bars':len(d),
+    report={'broker':bridge.BROKER_NAME,'engine':ENGINE,'symbol':symbol,'created_at':time.time(),'bars':len(d),
             'first_bar':float(d.time.iloc[0]),'last_bar':last,'holdout_start':cutoff,
             'holdout':summary,'stress':stats(stress),'chronological_folds':folds,
             'traded_sessions':sessions,'expectancy_lower_95':lower,'eligible':eligible,'reason':reason,

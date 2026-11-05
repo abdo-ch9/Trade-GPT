@@ -41,6 +41,17 @@ def ensure_running():
             creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
 
 
+def reconnect(identity):
+    """Recover a lost worker connection, then verify the originally armed account."""
+    with bridge.LOCK:
+        mt5 = bridge.api()
+        terminal = mt5.terminal_info()
+        if terminal is None or not terminal.connected or mt5.account_info() is None:
+            if not mt5.initialize(timeout=10000):
+                raise bridge.DemoError('Background worker cannot reconnect to MT5. Keep the demo terminal open and connected.')
+        bridge.checked_account(mt5, identity)
+
+
 def run():
     import msvcrt
     try:
@@ -73,6 +84,8 @@ def run():
                     with gate:
                         state['scanner']='analyzing'
                         state['scan_started']=time.time()
+                    reconnect(config['identity'])
+
                     auto.scan(config['identity'],config['offset'])
                     with gate:
                         state['last_scan']=time.time()
@@ -96,6 +109,8 @@ def run():
         return
     scanner=threading.Thread(target=scan_loop,daemon=True)
     scanner.start()
+    from .telegram_notifications import start as start_telegram
+    start_telegram()
     record('worker','Gold worker started; 15-minute exit watchdog active.')
     while True:
         config=auto.settings()
@@ -103,6 +118,8 @@ def run():
         try:
             if config.get('identity'):
                 with auto.process_guard(),bridge.LOCK:
+                    reconnect(config['identity'])
+
                     manage(config['identity'],auto.JOURNAL)
                 with gate:
                     state['last_exit_check']=time.time()
