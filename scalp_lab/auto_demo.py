@@ -167,7 +167,7 @@ def arm(identity, symbols, offset, *, override_live_validation=False):
             raise bridge.DemoError('The live validation override requires an Exness real account.')
         if live and not override_live_validation:
             from .gold import validation
-            valid, reason = validation(symbols[0])
+            valid, reason = validation(symbols[0], broker_exit=True)
             if not valid:
                 raise bridge.DemoError(reason)
         from .gold_exits import HOLD_BARS
@@ -347,18 +347,16 @@ def execute(config,symbol,result,db_path=JOURNAL,manual=False):
         news_block,news_reason=news_gate(result.get('news',{}),side,time.time())
         if news_block:
             raise bridge.DemoError(news_reason)
-        from .gold_exits import EXIT_POLICY,deadline,unresolved
+        from .gold_exits import BROKER_EXIT_POLICY,unresolved
         if unresolved(db):
             raise bridge.DemoError('An unresolved timed exit requires review before new entries.')
         request=ticket['request']
-        context={'exit_policy':EXIT_POLICY,'deadline_utc':deadline(bar,config['offset']),
+        context={'exit_policy':BROKER_EXIT_POLICY,
                  'symbol':symbol,'type':request.get('type'),'volume':.01,'magic':MAGIC,
                  'offset':config['offset'],'filling':request.get('type_filling'),
                  'entry_request':request,'setup':result.get('setup'),
                  'signal_time':bar,'equity_at_send':account.equity,'estimated_loss':ticket['loss'],
                  'spread_price':result.get('spread_price'),'point':ticket.get('point')}
-        if time.time()>=context['deadline_utc']:
-            raise bridge.DemoError('The 15-minute trade window has already ended.')
         db.execute('INSERT INTO entries VALUES (?,?,?,?,?,?)',(token,account_key,day,time.time(),'sending',json.dumps({'execution_context':context})))
         db.commit()
         started=time.time()
@@ -549,7 +547,7 @@ def render(identity,instruments,offset,*,mode='demo'):
     from .gold import execution_validation
     trade_validated=bool(symbols) and all(execution_validation(s,demo=mode=='demo')[0] for s in symbols)
     if mode=='demo' and settings().get('allow_unvalidated_demo') is True:
-        st.warning('User-approved demo research: historical tests are advisory. New bot positions use broker SL/TP and a 15-minute candle-based exit deadline. News and account risk limits still apply.')
+        st.warning('User-approved demo research: historical tests are advisory. New bot positions use broker SL/TP with no timed close. News and account risk limits still apply.')
     if mode=='demo' and settings().get('exclude_tesla_stop_risk') is True:
         st.warning('Tesla is excluded from open-position stop-risk estimates at your request. Its account-equity gains/losses still count. The daily budget does not cover Tesla’s additional loss to its stop.')
     if mode=='real' and config.get('allow_unvalidated_live') is True and config.get('enabled'):
@@ -560,7 +558,7 @@ def render(identity,instruments,offset,*,mode='demo'):
     if settings().get('daily_loss_eur') is not None:
         budget_label = f"€{settings()['daily_loss_eur']:.2f} daily loss budget (converted using fresh EURUSD bid for USD accounts)"
     st.caption(f'{len(symbols)} Exness gold instruments eligible for exactly 0.01 lot. Daily equity loss plus reserved open-stop risk and a 20% cost reserve for the new trade must fit the {budget_label}. Five entry attempts per UTC day. Stops/targets attached to every entry.')
-    st.caption('Background worker runs with the browser closed, for up to eight hours of entries per start. Stop blocks new entries; timed exits for new bot positions remain active. Keep this computer and MT5 running. Broker stops remain in place if the worker is offline; timed exits can be delayed by downtime or unavailable quotes.')
+    st.caption('Background worker runs with the browser closed, for up to eight hours of entries per start. Stop blocks new entries; broker stops and targets remain active. Keep this computer and MT5 running. Broker stops remain in place if the worker is offline; timed exits can be delayed by downtime or unavailable quotes.')
     config=settings()
     left,right=st.columns(2)
     if left.button(f'Start automatic {mode.upper()} trading',disabled=config.get('enabled',False) or not news_connected or not trade_validated,key='start_auto_demo'):

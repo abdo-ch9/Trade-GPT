@@ -9,6 +9,7 @@ from .gold_events import record
 
 HOLD_BARS=15
 EXIT_POLICY='signal-close-plus-15m-v1'
+BROKER_EXIT_POLICY='broker-sl-tp-v1'
 # Positions already journaled under the retired clock still close at their stored deadline.
 MANAGED_POLICIES={EXIT_POLICY,'signal-close-plus-5m-v1'}
 
@@ -81,7 +82,8 @@ def manage(identity,db_path,now=None):
         for token,detail in rows:
             data=json.loads(detail)
             context=data.get('execution_context',{})
-            if context.get('exit_policy') not in MANAGED_POLICIES:
+            broker_exit = context.get('exit_policy') == BROKER_EXIT_POLICY
+            if not broker_exit and context.get('exit_policy') not in MANAGED_POLICIES:
                 continue
             previous=db.execute('SELECT state,detail FROM exits WHERE token=?',(token,)).fetchone()
             if previous and previous[0]=='closed':
@@ -95,8 +97,8 @@ def manage(identity,db_path,now=None):
                     db.execute('UPDATE entries SET detail=? WHERE token=?', (json.dumps(data), token))
                     db.commit()
             if not position_id:
-                if now >= context['deadline_utc']:
-                    issues.append(f"{context['symbol']} order {order or 'unknown'}: MT5 could not verify the position for its timed exit.")
+                if broker_exit or now >= context['deadline_utc']:
+                    issues.append(f"{context['symbol']} order {order or 'unknown'}: MT5 could not verify the position.")
                 continue
             positions=mt5.positions_get(symbol=context['symbol'])
             if positions is None:
@@ -116,6 +118,8 @@ def manage(identity,db_path,now=None):
                 db.execute('INSERT OR REPLACE INTO exits VALUES (?,?,?)',(token,'closed',json.dumps(summary)))
                 db.commit()
                 record('closed',f"{context['symbol']} position closed; net P&L {summary['net_pnl']:.2f} in account currency",summary,key=token+':closed')
+                continue
+            if broker_exit:
                 continue
             if previous:
                 # sending/unknown/partial/rejected outcomes require review, never a blind retry.

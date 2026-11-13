@@ -58,6 +58,17 @@ class TimedExitTests(unittest.TestCase):
         exits.manage(self.identity,self.db,self.now-10)
         self.mt5.order_send.assert_not_called()
 
+    def test_broker_managed_position_stays_open_after_fifteen_minutes(self):
+        context = {**self.context, 'exit_policy': exits.BROKER_EXIT_POLICY}
+        context.pop('deadline_utc')
+        with closing(sqlite3.connect(self.db)) as db:
+            db.execute('UPDATE entries SET detail=?',
+                       (json.dumps({'order': 12, 'execution_context': context}),))
+            db.commit()
+
+        exits.manage(self.identity, self.db, self.now + 3600)
+        self.mt5.order_send.assert_not_called()
+
     def test_exness_order_history_fallback_closes_verified_position(self):
         self.mt5.history_orders_get.return_value = [NS(ticket=12, position_id=100)]
         self.mt5.history_deals_get.side_effect = lambda **query: (

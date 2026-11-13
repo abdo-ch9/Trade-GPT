@@ -95,7 +95,7 @@ def levels(row,side,entry,spread,min_stop=0,point=.01):
             'sl_bps':float(risk/entry*10000),'tp_bps':float(1.8*risk/entry*10000)}
 
 
-def validation(symbol):
+def validation(symbol, *, broker_exit=False):
     try:
         r=json.loads(REPORT.read_text())
         if (r.get('broker')!=bridge.BROKER_NAME or r.get('engine')!=ENGINE or r.get('symbol')!=symbol
@@ -103,6 +103,8 @@ def validation(symbol):
             return False,'Run a current Exness historical evaluation for this exact gold instrument and the 15-minute hold.'
         if r.get('eligible') and not r.get('live_exit_validated',False):
             return False,'Chart research passed, but matching live exit management and forward paper validation are still required.'
+        if broker_exit and r['eligible']:
+            return False, 'The timed-exit evaluation does not validate trades managed only by broker stops and targets.'
         return r['eligible'],r['reason']
     except (OSError,ValueError,KeyError):
         return False,'Run historical evaluation before enabling gold entries.'
@@ -219,7 +221,7 @@ def execution_validation(symbol,config=None,*,demo,identity=None):
         and config.get('enabled') is True and config.get('allow_unvalidated_live') is True
         and time.time() < config.get('expires', 0)):
         return True,'Historical validation overridden for this live automation session.'
-    return validation(symbol)
+    return validation(symbol, broker_exit=True)
 
 
 def simulate(d,point,cost_multiplier=1):

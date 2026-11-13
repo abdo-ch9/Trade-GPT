@@ -180,7 +180,7 @@ def workspace():
                 {'Input':'DXY, Treasury / real yields, economic calendar','Status':'Not connected; no scheduled-event blackout guarantee'},
                 {'Input':'COMEX depth, delta, open interest, real volume profile','Status':'Not connected; never inferred from Exness ticks'},
                 {'Input':'ML probabilities / 60% win rate','Status':'No calibrated probability claim'}],hide_index=True)
-            st.write('Setups: aligned M5/M15 trend pullback; breakout retest anchored to the original broken level; range sweep. ATR defines stops; target is 1.8R. New bot entries share the backtest deadline: 15 minutes after the signal candle closes, with earlier broker SL/TP exits. Actual timed fills can be delayed by quote/connection availability.')
+            st.write('Setups: aligned M5/M15 trend pullback, breakout retest, and range sweep. ATR defines stops and the target is 1.8R. New bot trades use broker stop-loss and take-profit with no timed close. Historical results use a 15-minute simulated hold.')
         if not auto_demo.settings().get('enabled'):
             from datetime import datetime,timezone
             scenario=result['scenarios'].get(result['chart_signal'],{})
