@@ -47,7 +47,7 @@ def reconnect(identity):
         mt5 = bridge.api()
         terminal = mt5.terminal_info()
         if terminal is None or not terminal.connected or mt5.account_info() is None:
-            if not mt5.initialize(timeout=10000):
+            if not bridge.initialize(mt5):
                 raise bridge.DemoError('Background worker cannot reconnect to MT5. Keep the demo terminal open and connected.')
         bridge.checked_account(mt5, identity)
 
@@ -55,7 +55,7 @@ def reconnect(identity):
 def initialize_worker(mt5):
     """Bounded recovery when the terminal is still starting; no orders are sent."""
     for attempt in range(3):
-        if mt5.initialize(timeout=10000):
+        if bridge.initialize(mt5):
             return True
         if attempt < 2:
             time.sleep(2)

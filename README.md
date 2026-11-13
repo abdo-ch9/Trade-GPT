@@ -1,13 +1,13 @@
 # ScalpLab
 
-ScalpLab is a local Python research app for IC Markets demo GOLD/XAUUSD. The active interface is `dashboard.py`; it reads broker candles and quotes through the Windows MetaTrader 5 terminal, evaluates a fixed gold strategy, checks sourced AI news, and supports reviewed demo orders. `dashboard_legacy.py` and the `python -m scalp_lab` CLI retain the older, separate Alpaca stock research workflow. The MT5 integration accepts IC Markets demo accounts only; real-money accounts are always blocked.
+ScalpLab is a local Python research and trading app for Exness GOLD/XAUUSD. The active interface is `dashboard.py`. It reads broker candles and quotes through Windows MetaTrader 5, evaluates a fixed gold strategy, checks sourced AI news, and supports manual and automatic trading on Exness demo and real accounts. `dashboard_legacy.py` and the `python -m scalp_lab` CLI retain the older, separate Alpaca stock research workflow.
 
-The initial gold strategy failed its historical cost test, so normal validation blocks automatic entries. An explicit demo research override exists, but it does not establish profitability. Do not interpret a signal or a demo fill as evidence of profitability. See [GOLD_RESEARCH.md](GOLD_RESEARCH.md) for the rules, results, and limitations. The app is for local research and demo accounts only.
+The initial gold strategy failed its historical cost test. Real-account entries require both a passing evaluation and forward paper validation. The dashboard backtest alone does not certify forward validation. The demo research override remains available on demo accounts. See [GOLD_RESEARCH.md](GOLD_RESEARCH.md) for the rules and results.
 
 ## Software to install
 
 - **Windows 10/11 and Python 3.11 or newer.** Install Python from [python.org](https://www.python.org/downloads/windows/) with the Python launcher (`py`) enabled. Git is needed only if you are cloning the repository.
-- **IC Markets MetaTrader 5 desktop terminal and an IC Markets demo account** for the active gold dashboard. Install MT5 from IC Markets, sign in locally, and keep the terminal open. The Python connector does not accept a live account. You can run unit tests and the legacy synthetic-data demo without MT5.
+- **Exness MetaTrader 5 desktop terminal and an Exness demo or real account** for the active gold dashboard. Install MT5 from Exness, sign in locally, and keep the terminal open. You can run unit tests and the legacy synthetic-data demo without MT5.
 - **One news provider** for gold decisions: [Ollama](https://ollama.com/download/windows) on the same computer, or an OpenAI API key. Ollama avoids a cloud key but requires the configured model to be installed. A missing news provider blocks news-gated entries.
 
 ## Install and run (PowerShell)
@@ -19,16 +19,20 @@ py -3 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe -m pip install -r requirements-mt5.txt
-Copy-Item .env.example .env
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 ```
 
-Edit `.env` for your news provider. For local Ollama, set `IC_MARKETS_NEWS_PROVIDER=ollama`, run `ollama pull qwen2.5:7b-instruct`, and start Ollama. For cloud news, set `IC_MARKETS_NEWS_PROVIDER=openai` and provide your own `OPENAI_API_KEY`. Existing `XM_`-prefixed news settings remain supported as backward-compatible aliases. Do not commit `.env` or paste credentials into issues or logs.
+Edit `.env` for your news provider. For local Ollama, set `EXNESS_NEWS_PROVIDER=ollama`, run `ollama pull qwen2.5:7b-instruct`, and start Ollama. For cloud news, set `EXNESS_NEWS_PROVIDER=openai` and provide your own `OPENAI_API_KEY`. Existing `IC_MARKETS_` and `XM_` news settings still work as fallbacks. If MT5 auto-discovery opens another installation, set `EXNESS_MT5_PATH` to the full path to the Exness `terminal64.exe`. The dashboard and worker both read this setting. Do not commit `.env` or paste credentials into issues or logs.
 
 ```powershell
 .\.venv\Scripts\python.exe -m streamlit run dashboard.py
 ```
 
-In the browser, select the timestamp offset shown by the IC Markets MT5 server, connect the IC Markets **demo** terminal, and choose the exact USD gold instrument. Run a fresh historical evaluation using IC Markets data before interpreting signals: previous XM evaluations do not authorize entries on the new broker, and spreads, contract details and costs may differ. Manual demo orders require an explicit review and click. Automatic demo trading has additional risk and validation gates and should remain off until its behavior has been checked in the connected demo account. The dashboard and its worker run locally; keep the app and MT5 open for timed exit management.
+When switching brokers, stop the previous dashboard and background worker before launching this version. Log in to the Exness MT5 desktop terminal with the account number, trading password, and server listed in your Exness Personal Area. Enter the trading credentials in MT5. [Exness MT5 login guide](https://get.exness.help/hc/en-us/articles/360011514572-MT5-Trading-guide-Desktop)
+
+Click **Connect Exness MT5** and choose the gold instrument listed on your account, for example `XAUUSDm` on Standard. The dashboard uses UTC for Exness quotes and candles. Run **Fetch gold history and evaluate** to create a fresh Exness evaluation for the exact instrument. Previous broker reports are historical research only. [Exness symbol suffixes](https://get.exness.help/hc/en-us/articles/360014560220-Account-type-suffixes) · [Exness MT5 time zone](https://get.exness.help/hc/en-us/articles/360014390760-What-is-the-default-timezone-set-for-MetaTrader)
+
+If automation still shows a previous account, stop it and select **Use connected real account and gold instrument** or its demo equivalent. Real-account entries require a passing historical evaluation. The historical validation override and Tesla stop-risk exception apply only to demo accounts. The existing news, sizing, and risk checks apply to gold entries. Keep the dashboard and MT5 open for timed exit management.
 
 ## Tests and optional legacy workflow
 
@@ -45,7 +49,7 @@ The older stock pipeline can be checked with synthetic data:
 .\.venv\Scripts\python.exe -m scalp_lab backtest --bars demo_data/DEMO_bars.csv --news demo_data/DEMO_news.csv --out results_demo
 ```
 
-For historical Alpaca stock data, fill `ALPACA_API_KEY` and `ALPACA_API_SECRET` in `.env`, then use `python -m scalp_lab fetch --help`. Alpaca data is not the gold broker feed and does not authorize IC Markets orders.
+For historical Alpaca stock data, fill `ALPACA_API_KEY` and `ALPACA_API_SECRET` in `.env`, then use `python -m scalp_lab fetch --help`. Alpaca data is not the gold broker feed and does not authorize Exness orders.
 
 ## Repository and local files
 
@@ -88,13 +92,13 @@ produce a duplicate message. Events older than five minutes are not delivered.
 Remove either setting to disable notifications.
 
 
-## Forward demo review
+## Forward execution review
 
 The dashboard's forward-performance panel reads the current account's bot journal.
 It reports reconciled closed-trade net P&L (including recorded commission, swap and
 fees), stop-risk-normalized returns, submission latency and unresolved outcomes.
 Its drawdown uses closed results in entry order, not marked-to-market equity.
 Open trades and signals are not counted as completed trades. Download the JSON
-report to retain the evidence from each test period. These diagnostics do not
-validate profitability or authorize live trading; the demo-only broker block stays
-in place. Worker startup retries transient MT5 initialization failures three times.
+report to retain the evidence from each test period. This report provides execution
+diagnostics. Entry authorization uses the strategy validation gate. Worker startup
+retries transient MT5 initialization failures three times.

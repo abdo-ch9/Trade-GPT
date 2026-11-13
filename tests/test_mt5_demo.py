@@ -4,21 +4,22 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace as NS
 from unittest.mock import Mock,patch
-from scalp_lab.mt5_demo import DemoError,checked_account,preview,submit,quote
+from scalp_lab.mt5_demo import DemoError,checked_account,initialize,preview,submit,quote
 
 
 def terminal():
-    mt5=NS(ACCOUNT_TRADE_MODE_DEMO=0,SYMBOL_TRADE_MODE_FULL=4,SYMBOL_TRADE_MODE_LONGONLY=1,
+    mt5=NS(ACCOUNT_TRADE_MODE_DEMO=0,ACCOUNT_TRADE_MODE_REAL=2,SYMBOL_TRADE_MODE_FULL=4,SYMBOL_TRADE_MODE_LONGONLY=1,
            SYMBOL_TRADE_MODE_SHORTONLY=2,SYMBOL_TRADE_EXECUTION_MARKET=2,
+           SYMBOL_TRADE_EXECUTION_REQUEST=0,SYMBOL_TRADE_EXECUTION_INSTANT=1,
            ORDER_FILLING_FOK=0,ORDER_FILLING_IOC=1,ORDER_FILLING_RETURN=2,
            TRADE_ACTION_DEAL=1,ORDER_TYPE_BUY=0,ORDER_TYPE_SELL=1,ORDER_TIME_GTC=0,
            TRADE_RETCODE_DONE=10009,TRADE_RETCODE_DONE_PARTIAL=10010,TRADE_RETCODE_PLACED=10008)
-    mt5.account_info=Mock(return_value=NS(login=123,server="ICMarketsSC-Demo",company="IC Markets Global",trade_mode=0,trade_allowed=True,trade_expert=True,currency="USD"))
+    mt5.account_info=Mock(return_value=NS(login=123,server="Exness-MT5Trial",company="Exness Technologies Ltd",trade_mode=0,trade_allowed=True,trade_expert=True,currency="USD"))
     mt5.terminal_info=Mock(return_value=NS(connected=True,trade_allowed=True,tradeapi_disabled=False))
     mt5.symbol_select=Mock(return_value=True)
     mt5.symbol_info=Mock(return_value=NS(trade_mode=4,volume_min=0.01,volume_max=10.0,volume_step=0.01,
                                         trade_tick_size=0.01,point=0.01,digits=2,trade_stops_level=1,order_mode=49,filling_mode=1,trade_exemode=2))
-    mt5.symbol_info_tick=Mock(return_value=NS(bid=100.0,ask=100.02,time_msc=int((time.time()+7200)*1000),time=int(time.time()+7200)))
+    mt5.symbol_info_tick=Mock(return_value=NS(bid=100.0,ask=100.02,time_msc=int(time.time()*1000),time=int(time.time())))
     mt5.positions_get=Mock(return_value=())
     mt5.orders_get=Mock(return_value=())
     mt5.order_check=Mock(return_value=NS(retcode=0,comment="Done"))
@@ -29,16 +30,32 @@ def terminal():
 
 
 class DemoTradeTests(unittest.TestCase):
-    identity=(123,"ICMarketsSC-Demo")
+    identity=(123,"Exness-MT5Trial")
 
-    def test_only_ic_markets_demo_accounts_are_accepted(self):
+    def test_only_exness_demo_accounts_are_accepted(self):
         m=terminal()
         self.assertIsNotNone(checked_account(m,self.identity))
-        for company,server in (("XM Global","XMGlobal-Demo"),("Other Broker","Other-Demo")):
+        for company,server in (("IC Markets Global","ICMarketsSC-Demo"),
+                               ("Exness Technologies Ltd","Other-Demo"),
+                               ("Other Broker","Exness-MT5Trial")):
             m.account_info.return_value.company=company
             m.account_info.return_value.server=server
-            with self.assertRaisesRegex(DemoError,"not identified as IC Markets"):
+            with self.assertRaisesRegex(DemoError,"not identified as Exness"):
                 checked_account(m)
+
+    def test_configured_terminal_path(self):
+        m = Mock()
+        path = r"C:\Program Files\Exness MT5\terminal64.exe"
+        with patch.dict("scalp_lab.mt5_demo.os.environ", {"EXNESS_MT5_PATH": path}):
+            initialize(m)
+        m.initialize.assert_called_once_with(path, timeout=10000)
+
+    def test_instant_execution_supports_fok_without_symbol_flags(self):
+        m = terminal()
+        m.symbol_info.return_value.trade_exemode = m.SYMBOL_TRADE_EXECUTION_INSTANT
+        m.symbol_info.return_value.filling_mode = 0
+        ticket = self.make(m)
+        self.assertEqual(ticket["request"]["type_filling"], m.ORDER_FILLING_FOK)
 
     def test_server_time_conversion_and_staleness(self):
         m=terminal()
@@ -64,14 +81,30 @@ class DemoTradeTests(unittest.TestCase):
              patch("scalp_lab.auto_demo.settings",return_value={'enabled':False}):
             return submit(ticket,path)
 
-    def test_real_account_is_rejected_before_preview_or_send(self):
+    def test_real_account_can_preview_and_submit_with_mocked_mt5(self):
         m=terminal()
-        ticket=self.make(m)
-        m.account_info.return_value.trade_mode=2
-        with self.assertRaises(DemoError):
-            self.make(m)
-        with self.assertRaises(DemoError):
-            self.send(m,ticket,":memory:")
+        m.account_info.return_value.trade_mode=m.ACCOUNT_TRADE_MODE_REAL
+        m.account_info.return_value.server="Exness-MT5Real"
+        with patch("scalp_lab.mt5_demo.api",return_value=m):
+            ticket=preview((123,"Exness-MT5Real"),"XAUUSDm","BUY",0.01,18,12)
+        self.assertEqual(self.send(m,ticket,":memory:")["state"],"filled")
+        m.order_send.assert_called_once()
+
+    def test_real_exness_account_can_be_read_without_trading_permissions(self):
+        m = terminal()
+        account = m.account_info.return_value
+        account.trade_mode = m.ACCOUNT_TRADE_MODE_REAL
+        account.server = 'Exness-MT5Real'
+        m.terminal_info.return_value.tradeapi_disabled = True
+        identity = (account.login, account.server)
+        self.assertIs(checked_account(m, identity, read_only=True), account)
+        with self.assertRaisesRegex(DemoError, 'account changed'):
+            checked_account(m, (999, account.server), read_only=True)
+        with self.assertRaisesRegex(DemoError, 'Trading through Python is disabled'):
+            checked_account(m, identity)
+        account.company = 'Other Broker'
+        with self.assertRaisesRegex(DemoError, 'not identified as Exness'):
+            checked_account(m, identity, read_only=True)
         m.order_send.assert_not_called()
 
     def test_account_switch_during_final_check_blocks_send(self):
@@ -112,7 +145,7 @@ class DemoTradeTests(unittest.TestCase):
         m=terminal()
         ticket=self.make(m)
         m.symbol_info_tick.return_value.ask=101
-        with self.assertRaises(DemoError):
+        with self.assertRaisesRegex(DemoError, "Price moved beyond the ticket tolerance"):
             self.send(m,ticket,":memory:")
         m.symbol_info_tick.return_value.ask=100.02
         m.order_check.return_value=NS(retcode=10016,comment="Invalid stops")

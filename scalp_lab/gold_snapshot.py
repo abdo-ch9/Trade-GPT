@@ -65,6 +65,7 @@ def risk_summary(identity, config):
             raise bridge.DemoError('Current portfolio risk is unavailable.')
         budget = auto.daily_budget(config, baseline, account.currency)
         loss = max(0, baseline-account.equity)
-        reserved = auto.portfolio_stop_risk(mt5, positions, config.get('offset', 2), config.get('exclude_tesla_stop_risk') is True)
+        demo = account.trade_mode == mt5.ACCOUNT_TRADE_MODE_DEMO
+        reserved = auto.portfolio_stop_risk(mt5, positions, config.get('offset', bridge.UTC_OFFSET_HOURS), demo and config.get('exclude_tesla_stop_risk') is True)
         return {'budget': budget, 'remaining': max(0, budget-loss-reserved),
                 'currency': account.currency, 'attempts': attempts}

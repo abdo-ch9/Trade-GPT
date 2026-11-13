@@ -12,11 +12,13 @@ class EuroBudgetTests(unittest.TestCase):
     def test_usd_account_uses_fresh_verified_broker_bid(self):
         mt5 = Mock()
         mt5.symbol_info.return_value = SimpleNamespace(currency_base='EUR', currency_profit='USD')
-        config = {'daily_loss_eur': 50, 'daily_loss_usd': 30, 'identity': [123, 'demo'], 'offset': 3}
+        config = {'daily_loss_eur': 50, 'daily_loss_usd': 30, 'identity': [123, 'Exness-MT5Trial'],
+                  'symbols': ['XAUUSDm'], 'offset': 0}
         with patch.object(auto.bridge, 'api', return_value=mt5), patch.object(auto.bridge, 'checked_account') as check, patch.object(auto.bridge, 'quote', return_value=SimpleNamespace(bid=1.15)) as quote:
             self.assertAlmostEqual(auto.daily_budget(config, 200, 'USD'), 57.5)
             check.assert_called_once_with(mt5, config['identity'])
-            quote.assert_called_once_with(mt5, 'EURUSD', 3)
+            mt5.symbol_select.assert_called_once_with('EURUSDm', True)
+            quote.assert_called_once_with(mt5, 'EURUSDm', 0)
 
     def test_stale_conversion_blocks_entries(self):
         mt5 = Mock()

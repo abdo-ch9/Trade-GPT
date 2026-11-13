@@ -17,7 +17,7 @@ class TimedExitTests(unittest.TestCase):
         self.tmp=tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.db=Path(self.tmp.name)/'journal.db'
-        self.identity=[123,'ICMarketsSC-Demo']
+        self.identity=[123,'Exness-MT5Trial']
         self.now=time.time()
         self.context={'exit_policy':exits.EXIT_POLICY,'symbol':'GOLD','type':0,'volume':.01,
                       'magic':auto.MAGIC,'offset':2,'filling':0,'deadline_utc':self.now-1}
@@ -56,6 +56,25 @@ class TimedExitTests(unittest.TestCase):
 
     def test_early_position_is_not_closed(self):
         exits.manage(self.identity,self.db,self.now-10)
+        self.mt5.order_send.assert_not_called()
+
+    def test_exness_order_history_fallback_closes_verified_position(self):
+        self.mt5.history_orders_get.return_value = [NS(ticket=12, position_id=100)]
+        self.mt5.history_deals_get.side_effect = lambda **query: (
+            [self.deal] if query == {'position': 100} else None
+        )
+        exits.manage(self.identity, self.db, self.now)
+        self.mt5.order_send.assert_called_once()
+        self.assertEqual(self.mt5.order_send.call_args.args[0]['position'], 99)
+        with closing(sqlite3.connect(self.db)) as db:
+            detail = db.execute('SELECT detail FROM entries').fetchone()[0]
+        self.assertEqual(json.loads(detail)['position_id'], 100)
+
+    def test_unverified_overdue_position_marks_watchdog_unhealthy(self):
+        self.mt5.history_orders_get.return_value = [NS(ticket=12, position_id=100)]
+        self.mt5.history_deals_get.return_value = None
+        with self.assertRaisesRegex(DemoError, 'could not verify the position'):
+            exits.manage(self.identity, self.db, self.now)
         self.mt5.order_send.assert_not_called()
 
     def test_unknown_send_is_not_retried(self):

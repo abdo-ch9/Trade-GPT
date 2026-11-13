@@ -1,4 +1,4 @@
-"""Local learned directional outlook on IC Markets candles. Never submits orders."""
+"""Local learned directional outlook on Exness candles. Never submits orders."""
 import time
 import math
 import numpy as np
@@ -261,12 +261,12 @@ def assess(bars, point, fitted, bid, ask, server_now, min_stop=0):
     d = features(bars, point, fitted.get('horizon',HORIZON))
     result = {'frame': d, 'action': 'WAIT', 'reasons': [], 'ready': False}
     if d.empty:
-        result['reasons'] = ['No completed IC Markets candles are available.']
+        result['reasons'] = ['No completed Exness candles are available.']
         return result
     row = d.iloc[-1]
     age = server_now-(row.time+60)
     if not 0 <= age <= 90:
-        result['reasons'] = [f'Latest completed IC Markets candle is not current (age {age:.0f}s).']
+        result['reasons'] = [f'Latest completed Exness candle is not current (age {age:.0f}s).']
         return result
     if not np.isfinite(row[FEATURES].to_numpy(dtype=float)).all():
         result['reasons'] = ['Need at least 61 consecutive candles after the latest data gap.']
@@ -317,10 +317,10 @@ def snapshot(identity, symbol, offset, horizon=5):
             mt5 = api()
             checked_account(mt5, identity)
             if not mt5.symbol_select(symbol, True):
-                raise DemoError('Cannot subscribe to this IC Markets instrument.')
+                raise DemoError('Cannot subscribe to this Exness instrument.')
             rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M1, 1, 50000)
             if rates is None or not len(rates):
-                raise DemoError('IC Markets candle history is not loaded. Open this instrument’s M1 chart in MT5, then retry.')
+                raise DemoError('Exness candle history is not loaded. Open this instrument’s M1 chart in MT5, then retry.')
             bars = pd.DataFrame(rates)
             return bars[bars.time+60 <= time.time()+offset*3600]
 
@@ -344,7 +344,7 @@ def snapshot(identity, symbol, offset, horizon=5):
         checked_account(mt5, identity)
         rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M1, 1, 180)
         if rates is None or not len(rates):
-            raise DemoError('Cannot refresh the latest completed IC Markets candles. Open this instrument’s M1 chart in MT5, then retry.')
+            raise DemoError('Cannot refresh the latest completed Exness candles. Open this instrument’s M1 chart in MT5, then retry.')
         live_bars = pd.DataFrame(rates)
         live_bars = live_bars[live_bars.time+60 <= time.time()+offset*3600]
         tick = quote(mt5, symbol, offset)
@@ -357,11 +357,11 @@ def render(identity, symbol, offset):
     import streamlit as st
     import plotly.graph_objects as go
     from .mt5_demo import DemoError
-    st.markdown('### IC Markets AI analysis')
-    st.caption('Local machine-learning model trained on this exact IC Markets instrument. No API key required. Demo research only.')
+    st.markdown('### Exness AI analysis')
+    st.caption('Local machine-learning model trained on this exact Exness instrument. No API key required. Demo research only.')
     horizon=st.selectbox('Forecast horizon (minutes)',[5,15,30,60],key='xm_ai_horizon')
     try:
-        with st.spinner('Learning from IC Markets candles and checking later historical outcomes…'):
+        with st.spinner('Learning from Exness candles and checking later historical outcomes…'):
             result, fitted = snapshot(identity, symbol, offset, horizon)
         st.metric('Demo research decision', result['action'])
         if result['ready']:
@@ -380,7 +380,7 @@ def render(identity, symbol, offset):
             for field in ['ema9','ema21']:
                 fig.add_scatter(x=x, y=chart[field], name=field.upper(), mode='lines', connectgaps=False)
             fig.update_layout(height=400, template='plotly_dark', xaxis_rangeslider_visible=False, uirevision=symbol,
-                              title=f'{symbol} · IC Markets M1 candles · broker server time')
+                              title=f'{symbol} · Exness M1 candles · broker server time')
             st.plotly_chart(fig, width='stretch', key='xm_ai_chart')
         if fitted['ready']:
             report=fitted.get('validation',{})
@@ -393,7 +393,7 @@ def render(identity, symbol, offset):
                 st.caption('The holdout simulates the configured volatility stop and 2R target, subtracts recorded spread plus a 2 bp allowance, and closes unresolved trades at the chosen horizon. It still cannot establish future profitability. Keep checking fresh forward results.')
         st.caption('Local, calibrated two-stage tree models compare the chance of a cost-clearing move and its direction using returns, trend, volatility, breakouts, RSI, tick activity and spread. A model and probability threshold are selected on earlier data; a later untouched, cost-aware trade replay must pass before signals are enabled. It does not include news, order-book depth or macro calendars. This is demo research; fills, fees and gaps can differ. Existing Alpaca models remain separate.')
         if result.get('scenarios'):
-            st.write('**Dynamic scenarios — based on IC Markets volatility, recent price levels and spread**')
+            st.write('**Dynamic scenarios — based on Exness volatility, recent price levels and spread**')
             st.dataframe(pd.DataFrame(result['scenarios']).T[['entry','sl','tp']], width='stretch')
             st.caption('Scenarios use a 2:1 target/risk distance. They are illustrative, not optimized or guaranteed. The broker checks final rounded prices before submission.')
         return result.get('scenarios', {})

@@ -40,7 +40,9 @@ class GoldTests(unittest.TestCase):
         self.assertTrue((d.iloc[500:].side==0).all())
 
     def test_gold_filter_excludes_gold_stocks_and_synthetic_weekend(self):
-        for symbol,expected in [('GOLD',True),('XAUUSD',True),('EURUSD',False),('BarrickGold',False),('GOLD24-7',False)]:
+        for symbol,expected in [('GOLD',True),('XAUUSD',True),('XAUUSDm',True),('XAUUSDc',True),
+                                ('XAUUSDr',True),('XAUUSDz',True),('XAUUSD247m',False),
+                                ('EURUSD',False),('BarrickGold',False),('GOLD24-7',False)]:
             self.assertEqual(gold.eligible_symbol(SimpleNamespace(name=symbol,currency_profit='USD')),expected)
 
     def test_stop_first_collision_and_next_bar_entry(self):
@@ -77,13 +79,25 @@ class GoldTests(unittest.TestCase):
         self.assertEqual(report['execution_policy'],'signal-close-plus-15m-v1')
 
     def test_old_broker_evaluation_cannot_authorize_entries(self):
-        report={'broker':'XM','engine':gold.ENGINE,'symbol':'GOLD',
+        report={'broker':'IC Markets','engine':gold.ENGINE,'symbol':'GOLD',
                 'created_at':time.time(),'execution_policy':gold.EXIT_POLICY,
                 'eligible':True,'reason':'old report'}
         with patch.object(gold,'REPORT',SimpleNamespace(read_text=lambda:json.dumps(report))):
             valid,reason=gold.validation('GOLD')
         self.assertFalse(valid)
-        self.assertIn('IC Markets',reason)
+        self.assertIn('Exness',reason)
+
+    def test_live_override_requires_matching_active_unexpired_session(self):
+        identity = (123, 'Exness-MT5Real32')
+        config = {'enabled': True, 'allow_unvalidated_live': True, 'engine': gold.ENGINE,
+                  'identity': list(identity), 'symbols': ['XAUUSDm'], 'expires': time.time()+60}
+        with patch.object(gold, 'validation', return_value=(False, 'Failed evaluation')):
+            self.assertTrue(gold.execution_validation('XAUUSDm', config, demo=False, identity=identity)[0])
+            self.assertFalse(gold.execution_validation('XAUUSDm', config, demo=False)[0])
+            self.assertFalse(gold.execution_validation('XAUUSD', config, demo=False, identity=identity)[0])
+            self.assertFalse(gold.execution_validation('XAUUSDm', config, demo=False, identity=(999, identity[1]))[0])
+            for change in ({'enabled': False}, {'expires': time.time()-1}):
+                self.assertFalse(gold.execution_validation('XAUUSDm', {**config, **change}, demo=False, identity=identity)[0])
 
     def test_previously_viewed_history_cannot_authorize(self):
         b=bars()

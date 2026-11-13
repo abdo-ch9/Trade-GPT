@@ -1,4 +1,4 @@
-"""Bounded IC Markets demo automation, evaluated by dashboard refreshes; no live accounts."""
+"""Bounded Exness demo automation, evaluated by dashboard refreshes; no live accounts."""
 import json
 import math
 import sqlite3
@@ -93,22 +93,26 @@ def daily_budget(config,baseline,currency):
         if currency == 'EUR':
             return float(euro_amount)
         if currency != 'USD':
-            raise bridge.DemoError('The EUR daily loss budget supports EUR or USD demo accounts.')
+            raise bridge.DemoError('The EUR daily loss budget supports EUR or USD accounts.')
         with bridge.LOCK:
             mt5 = bridge.api()
             bridge.checked_account(mt5, config.get('identity'))
-            info = mt5.symbol_info('EURUSD')
-            if info is None or info.currency_base != 'EUR' or info.currency_profit != 'USD':
-                raise bridge.DemoError('A verified EURUSD quote is required for the EUR daily budget.')
-            if not mt5.symbol_select('EURUSD', True):
-                raise bridge.DemoError('Cannot subscribe to EURUSD for daily budget conversion.')
-            tick = bridge.quote(mt5, 'EURUSD', config.get('offset', 2))
-            return float(euro_amount) * tick.bid
+            gold_symbol = next(iter(config.get('symbols', [])), '')
+            suffix = gold_symbol[len('XAUUSD'):] if gold_symbol.startswith('XAUUSD') else ''
+            symbols = ('EURUSD' + suffix, 'EURUSD') if suffix in bridge.SYMBOL_SUFFIXES and suffix else ('EURUSD',)
+            for symbol in symbols:
+                info = mt5.symbol_info(symbol)
+                if info is None or info.currency_base != 'EUR' or info.currency_profit != 'USD':
+                    continue
+                if mt5.symbol_select(symbol, True):
+                    tick = bridge.quote(mt5, symbol, config.get('offset', bridge.UTC_OFFSET_HOURS))
+                    return float(euro_amount)*tick.bid
+            raise bridge.DemoError('A verified EUR/USD quote is required for the EUR daily budget.')
 
     amount=config.get('daily_loss_usd')
     if amount is not None:
         if currency!='USD':
-            raise bridge.DemoError('The fixed USD loss budget requires a USD demo account.')
+            raise bridge.DemoError('The fixed USD loss budget requires a USD account.')
         if isinstance(amount,bool) or not isinstance(amount,(int,float)) or not math.isfinite(amount) or amount<=0:
             raise bridge.DemoError('Invalid fixed daily loss budget.')
         return float(amount)
@@ -117,7 +121,7 @@ def daily_budget(config,baseline,currency):
 
 def record_day(identity,equity,db_path=JOURNAL):
     if not math.isfinite(equity) or equity<=0:
-        raise bridge.DemoError('Invalid demo equity.')
+        raise bridge.DemoError('Invalid account equity.')
     with closing(sqlite3.connect(db_path,timeout=10)) as db:
         db.execute('CREATE TABLE IF NOT EXISTS days (account TEXT, day TEXT, equity REAL, PRIMARY KEY(account,day))')
         db.execute('INSERT OR IGNORE INTO days VALUES (?,?,?)',
@@ -140,26 +144,36 @@ def bind_stopped_session(identity, symbols, offset):
         config = {**config, 'enabled': False, 'identity': list(identity),
                   'symbols': list(symbols), 'offset': offset, 'engine': ENGINE,
                   'expires': 0, 'run_id': uuid.uuid4().hex,
-                  'stop_reason': 'Demo connection updated. Press Start to enable entries.'}
+                  'stop_reason': 'Account connection updated. Press Start to enable entries.'}
         save(config)
         return config
 
 
-def arm(identity, symbols, offset):
+def arm(identity, symbols, offset, *, override_live_validation=False):
     from .xm_news import connection_status
     connected,reason=connection_status()
     if not connected:
         raise bridge.DemoError(reason)
     with bridge.LOCK:
-        account=bridge.checked_account(bridge.api(),identity)
+        mt5=bridge.api()
+        account=bridge.checked_account(mt5,identity)
         if not symbols:
             raise bridge.DemoError('No gold instruments support 0.01 lot.')
         allowed=eligible(bridge.api().symbols_get() or [])
         if any(s not in allowed for s in symbols) or len(symbols)!=1:
             raise bridge.DemoError('Choose exactly one verified gold instrument.')
+        live = account.trade_mode == mt5.ACCOUNT_TRADE_MODE_REAL
+        if override_live_validation and not live:
+            raise bridge.DemoError('The live validation override requires an Exness real account.')
+        if live and not override_live_validation:
+            from .gold import validation
+            valid, reason = validation(symbols[0])
+            if not valid:
+                raise bridge.DemoError(reason)
         from .gold_exits import HOLD_BARS
         config={'enabled':True,'identity':list(identity),'symbols':list(symbols),'offset':offset,
                 'engine':ENGINE,
+                'allow_unvalidated_live':override_live_validation is True,
                 'allow_unvalidated_demo':settings().get('allow_unvalidated_demo') is True,
                 'exclude_tesla_stop_risk':settings().get('exclude_tesla_stop_risk') is True,
                 'daily_loss_usd':settings().get('daily_loss_usd'),
@@ -244,6 +258,7 @@ def execute(config,symbol,result,db_path=JOURNAL,manual=False):
     """Called under process_guard and bridge.LOCK. Persist intent BEFORE sending."""
     mt5=bridge.api()
     account=bridge.checked_account(mt5,config['identity'])
+    demo = account.trade_mode == mt5.ACCOUNT_TRADE_MODE_DEMO
     from .gold import SYMBOLS
     if symbol not in SYMBOLS:
         raise bridge.DemoError('Currency trading is retired. Only gold entries are supported.')
@@ -258,7 +273,7 @@ def execute(config,symbol,result,db_path=JOURNAL,manual=False):
     if result.get('engine') != ENGINE:
         raise bridge.DemoError('Only the chart + required AI news engine may submit automatic entries.')
     from .gold import execution_validation
-    validated,validation_reason=execution_validation(symbol,config)
+    validated,validation_reason=execution_validation(symbol,config,demo=demo,identity=None if manual else config['identity'])
     if not validated:
         raise bridge.DemoError(validation_reason)
     news_block,news_reason=news_gate(result.get('news',{}),result['action'].split()[0],time.time())
@@ -286,7 +301,7 @@ def execute(config,symbol,result,db_path=JOURNAL,manual=False):
         db.execute('CREATE TABLE IF NOT EXISTS days (account TEXT, day TEXT, equity REAL, PRIMARY KEY(account,day))')
         db.execute('CREATE TABLE IF NOT EXISTS entries (token TEXT PRIMARY KEY, account TEXT, day TEXT, time REAL, state TEXT, detail TEXT)')
         if not math.isfinite(account.equity) or account.equity<=0:
-            raise bridge.DemoError('Invalid demo equity.')
+            raise bridge.DemoError('Invalid account equity.')
         db.execute('INSERT OR IGNORE INTO days VALUES (?,?,?)',(account_key,day,account.equity))
         db.commit()
         baseline=db.execute('SELECT equity FROM days WHERE account=? AND day=?',(account_key,day)).fetchone()[0]
@@ -297,7 +312,7 @@ def execute(config,symbol,result,db_path=JOURNAL,manual=False):
         if used>=config['max_entries']:
             raise bridge.DemoError('Five automatic entry attempts reached today (UTC).')
         drawdown=max(0.0,baseline-account.equity)
-        reserved=portfolio_stop_risk(mt5,positions,config['offset'],config.get('exclude_tesla_stop_risk') is True)
+        reserved=portfolio_stop_risk(mt5,positions,config['offset'],demo and config.get('exclude_tesla_stop_risk') is True)
         remaining=daily_budget(config,baseline,account.currency)-drawdown-reserved
         if remaining<=0:
             raise bridge.DemoError('Daily equity loss limit reached. New entries are stopped.')
@@ -311,7 +326,7 @@ def execute(config,symbol,result,db_path=JOURNAL,manual=False):
         current=settings()
         if bool(current.get('enabled')) != (not manual) or current.get('run_id')!=config['run_id']:
             raise bridge.DemoError('Automation was stopped or reconfigured.')
-        permitted,reason=execution_validation(symbol,current)
+        permitted,reason=execution_validation(symbol,current,demo=demo,identity=None if manual else config['identity'])
         if not permitted:
             raise bridge.DemoError(reason)
         from .gold_worker import healthy as worker_healthy
@@ -320,13 +335,13 @@ def execute(config,symbol,result,db_path=JOURNAL,manual=False):
         # Recheck account-wide exposure directly before reserving the order.
         account=bridge.checked_account(mt5,config['identity'])
         if not math.isfinite(account.equity) or account.equity<=0:
-            raise bridge.DemoError('Invalid current demo equity before submission.')
+            raise bridge.DemoError('Invalid current account equity before submission.')
         current_positions,current_orders=mt5.positions_get(),mt5.orders_get()
         if current_positions is None or current_orders is None:
             raise bridge.DemoError('Cannot verify portfolio exposure immediately before submission.')
         if any(p.symbol==symbol for p in current_positions) or any(o.symbol==symbol for o in current_orders) or current_orders:
             raise bridge.DemoError('Exposure changed before submission.')
-        additional_reserved=portfolio_stop_risk(mt5,current_positions,config['offset'],current.get('exclude_tesla_stop_risk') is True)
+        additional_reserved=portfolio_stop_risk(mt5,current_positions,config['offset'],demo and current.get('exclude_tesla_stop_risk') is True)
         if daily_budget(current,baseline,account.currency)-max(0.0,baseline-account.equity)-additional_reserved-abs(ticket['loss'])*1.2<0:
             raise bridge.DemoError('Combined account stop risk exceeds the remaining daily loss budget.')
         news_block,news_reason=news_gate(result.get('news',{}),side,time.time())
@@ -349,6 +364,8 @@ def execute(config,symbol,result,db_path=JOURNAL,manual=False):
         started=time.time()
         try:
             outcome=bridge.submit(ticket)
+        except bridge.EntryQuoteMoved as exc:
+            outcome={'state':'skipped','message':str(exc)}
         except Exception as exc:
             # Conservatively ambiguous: never automatically retry this attempt.
             outcome={'state':'unknown','message':str(exc)}
@@ -358,7 +375,7 @@ def execute(config,symbol,result,db_path=JOURNAL,manual=False):
         db.execute('UPDATE entries SET state=?,detail=? WHERE token=?',(outcome['state'],json.dumps(outcome),token))
         db.commit()
         record('entry_'+outcome['state'],f"{symbol} {side}: {outcome.get('message',outcome['state'])}",outcome,key=token+':entry')
-        if outcome['state']!='filled':
+        if outcome['state'] not in ('filled','skipped'):
             stop('Automatic order needs review: '+outcome.get('message',outcome['state']))
         return outcome
 
@@ -369,7 +386,7 @@ def trade_row(identity,symbol,offset,expected_side):
     if config.get('enabled'):
         raise bridge.DemoError('Stop automatic trading before using a row trade button.')
     if tuple(config.get('identity',[]))!=tuple(identity) or config.get('offset')!=offset:
-        raise bridge.DemoError('Account or time setting changed. Start and stop a new demo session to configure these row buttons.')
+        raise bridge.DemoError('Account or time setting changed. Start and stop a new session to configure these row buttons.')
     if expected_side not in ('BUY','SELL') or symbol not in config.get('symbols',[]):
         raise bridge.DemoError('No approved directional setup for this row.')
     from .gold import snapshot
@@ -381,7 +398,7 @@ def trade_row(identity,symbol,offset,expected_side):
             return execute(config,symbol,result,manual=True)
 
 
-def render_trade_rows(identity,offset,current_status,enabled):
+def render_trade_rows(identity,offset,current_status,enabled,*,mode):
     import streamlit as st
     import pandas as pd
     from .gold_decisions import recent
@@ -396,12 +413,12 @@ def render_trade_rows(identity,offset,current_status,enabled):
                            'gold_saved_decisions.csv',mime='text/csv',key='saved_gold_decisions')
     else:
         st.caption('The next directional setup will be saved here automatically.')
-    st.write('**Trade a table setup · IC Markets demo · 0.01 lot**')
-    st.caption('Each button submits one demo market order after refreshing the chart, news and quote. Entry and dynamic levels may change. The same daily budget, five-attempt limit and duplicate-order protection apply.')
+    st.write(f'**Trade a table setup · Exness {mode} · 0.01 lot**')
+    st.caption(f'Each button submits one {mode} market order after refreshing the chart, news and quote. Entry and dynamic levels may change. The same daily budget, five-attempt limit and duplicate-order protection apply.')
     if enabled:
         st.info('Stop automatic trading to enable these manual trade buttons.')
     headers=st.columns([2,1,1.4,1.4,1.4,1,2])
-    for col,label in zip(headers,['Pair / direction','Lots','Entry','Take profit','Stop loss','Risk %','IC Markets action']):
+    for col,label in zip(headers,['Pair / direction','Lots','Entry','Take profit','Stop loss','Risk %','Exness action']):
         col.write('**'+label+'**')
     for symbol,row in current_status.items():
         cols=st.columns([2,1,1.4,1.4,1.4,1,2])
@@ -411,9 +428,9 @@ def render_trade_rows(identity,offset,current_status,enabled):
             value=row.get(key)
             col.write('—' if value is None else f'{value:.5f}' if key in ('entry','take_profit','stop_loss') else f'{value:.2f}')
         qualifies=row.get('decision') in ('BUY setup','SELL setup') and side in ('BUY','SELL')
-        if cols[6].button(f'{side} 0.01 demo' if qualifies else 'No setup',
+        if cols[6].button(f'{side} 0.01 {mode}' if qualifies else 'No setup',
                           key='row_trade_'+symbol,disabled=enabled or not qualifies,
-                          help='Refreshes and rechecks this setup before submitting to your IC Markets demo account.'):
+                          help=f'Refreshes and rechecks this setup before submitting to your Exness {mode} account.'):
             try:
                 with st.spinner(f'Rechecking {symbol} before submission…'):
                     outcome=trade_row(identity,symbol,offset,side)
@@ -438,7 +455,7 @@ def scan(identity,offset):
         stop('Account or server-time setting changed. Start a new session.')
         return
     if time.time()>config['expires']:
-        stop('Eight-hour demo automation session expired.')
+        stop('Eight-hour automation session expired.')
         return
     # The worker is the sole scanner. Do not hold the execution lock during slow AI news.
     LAST_SCAN=time.time()
@@ -509,10 +526,10 @@ def scan(identity,offset):
         record('error',str(exc),{'traceback':traceback.format_exc(limit=8)})
 
 
-def render(identity,instruments,offset):
+def render(identity,instruments,offset,*,mode='demo'):
     global STATUS
     import streamlit as st
-    st.markdown('### Automatic IC Markets demo trading')
+    st.markdown(f'### Automatic Exness {mode} trading')
     from .xm_news import connection_status
     news_connected,news_connection_reason=connection_status()
     st.caption('Gold M1/M5/M15 structure rules, cost-aware holdout evaluation and required AI news.')
@@ -526,25 +543,27 @@ def render(identity,instruments,offset):
                        or config.get('symbols') != symbols or config.get('offset') != offset)
     if context_changed and not config.get('enabled'):
         st.info('Saved automation belongs to a different account, instrument or timestamp convention. Update the stopped session before starting.')
-        if st.button('Use connected demo account and gold instrument', key='bind_gold_demo', disabled=len(symbols) != 1):
+        if st.button(f'Use connected {mode} account and gold instrument', key='bind_gold_demo', disabled=len(symbols) != 1):
             bind_stopped_session(identity, symbols, offset)
             st.rerun()
     from .gold import execution_validation
-    trade_validated=bool(symbols) and all(execution_validation(s)[0] for s in symbols)
-    if settings().get('allow_unvalidated_demo') is True:
+    trade_validated=bool(symbols) and all(execution_validation(s,demo=mode=='demo')[0] for s in symbols)
+    if mode=='demo' and settings().get('allow_unvalidated_demo') is True:
         st.warning('User-approved demo research: historical tests are advisory. New bot positions use broker SL/TP and a 15-minute candle-based exit deadline. News and account risk limits still apply.')
-    if settings().get('exclude_tesla_stop_risk') is True:
+    if mode=='demo' and settings().get('exclude_tesla_stop_risk') is True:
         st.warning('Tesla is excluded from open-position stop-risk estimates at your request. Its account-equity gains/losses still count. The daily budget does not cover Tesla’s additional loss to its stop.')
-    if not trade_validated:
+    if mode=='real' and config.get('allow_unvalidated_live') is True and config.get('enabled'):
+        st.warning('Historical validation is overridden for the active real-money automation session.')
+    elif not trade_validated:
         st.info('Research mode: gold analysis continues below the chart. Automatic trading is unavailable until historical evidence and matching live exit management are validated.')
     budget_label=(f"${settings()['daily_loss_usd']:.2f} daily loss budget" if settings().get('daily_loss_usd') is not None else '1% daily equity budget')
     if settings().get('daily_loss_eur') is not None:
         budget_label = f"€{settings()['daily_loss_eur']:.2f} daily loss budget (converted using fresh EURUSD bid for USD accounts)"
-    st.caption(f'{len(symbols)} IC Markets gold instruments eligible for exactly 0.01 lot. Daily equity loss plus reserved open-stop risk and a 20% cost reserve for the new trade must fit the {budget_label}. Five entry attempts per UTC day. Stops/targets attached to every entry.')
+    st.caption(f'{len(symbols)} Exness gold instruments eligible for exactly 0.01 lot. Daily equity loss plus reserved open-stop risk and a 20% cost reserve for the new trade must fit the {budget_label}. Five entry attempts per UTC day. Stops/targets attached to every entry.')
     st.caption('Background worker runs with the browser closed, for up to eight hours of entries per start. Stop blocks new entries; timed exits for new bot positions remain active. Keep this computer and MT5 running. Broker stops remain in place if the worker is offline; timed exits can be delayed by downtime or unavailable quotes.')
     config=settings()
     left,right=st.columns(2)
-    if left.button('Start automatic DEMO trading',disabled=config.get('enabled',False) or not news_connected or not trade_validated,key='start_auto_demo'):
+    if left.button(f'Start automatic {mode.upper()} trading',disabled=config.get('enabled',False) or not news_connected or not trade_validated,key='start_auto_demo'):
         arm(identity,symbols,offset)
     if right.button('Stop automatic trading',key='stop_auto_demo'):
         stop()
@@ -616,7 +635,7 @@ def render(identity,instruments,offset):
                      column_config={name:st.column_config.NumberColumn(name,format='%.5f')
                                     for name in ('Indicative entry','Take profit','Stop loss')})
         st.caption('Proposed 0.01-lot scenarios, not confirmed fills. Risk is estimated loss at stop / equity × 100, before fees and slippage. Levels can appear for a directional bias even when the decision blocks trading. Older rows populate on their next scan; blanks mean unavailable.')
-        render_trade_rows(identity,offset,current_status,settings().get('enabled',False))
+        render_trade_rows(identity,offset,current_status,settings().get('enabled',False),mode=mode)
         errors=[(s,v) for s,v in current_status.items() if v.get('state')=='error' and v.get('traceback')]
         if errors:
             with st.expander('Automation error details'):

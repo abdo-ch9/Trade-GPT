@@ -145,6 +145,13 @@ class ChartTests(unittest.TestCase):
 
 
 class NewsTests(unittest.TestCase):
+    def test_exness_suffixed_gold_uses_gold_headlines(self):
+        response = Mock(content=b'<rss><channel/></rss>')
+        with patch.object(news.requests, 'get', return_value=response) as get:
+            self.assertEqual(news.fetch_headlines('XAUUSDm', 1800000000), [])
+        self.assertIn('Treasury yields', get.call_args.kwargs['params']['q'])
+        self.assertTrue(news.pair_name('XAUUSDm').startswith('XAU/USD'))
+
     def tearDown(self):
         news.CACHE.clear()
         news.HEALTH.clear()

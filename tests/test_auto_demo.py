@@ -36,7 +36,7 @@ class AutoDemoTests(unittest.TestCase):
 
         self.mt5.account_info.return_value.equity=10000
 
-        self.config={'enabled':True,'identity':[123,'ICMarketsSC-Demo'],'symbols':['GOLD'],
+        self.config={'enabled':True,'identity':[123,'Exness-MT5Trial'],'symbols':['GOLD'],
 
                      'offset':2,'lots':.01,'max_entries':5,'daily_loss_fraction':.01,
 
@@ -184,7 +184,7 @@ class AutoDemoTests(unittest.TestCase):
 
         self.mt5.positions_get.return_value=[SimpleNamespace(symbol='Tesla',volume=.1,sl=379.04,type=0)]
 
-        with patch.object(auto.bridge,'quote',side_effect=DemoError('No fresh IC Markets quote for Tesla.')):
+        with patch.object(auto.bridge,'quote',side_effect=DemoError('No fresh Exness quote for Tesla.')):
 
             with self.assertRaisesRegex(DemoError,'Account risk check blocked: an existing Tesla position'):
 
@@ -484,20 +484,28 @@ class AutoDemoTests(unittest.TestCase):
 
 
 
-    def test_real_or_changed_account_blocked(self):
-
-        self.mt5.account_info.return_value.trade_mode=2
-
-        with self.assertRaises(DemoError):self.execute()
-
-        self.mt5.account_info.return_value.trade_mode=0
-
-        self.mt5.account_info.return_value.login=999
-
-        with self.assertRaises(DemoError):self.execute()
-
+    def test_live_account_cannot_use_demo_validation_override(self):
+        self.mt5.account_info.return_value.trade_mode = self.mt5.ACCOUNT_TRADE_MODE_REAL
+        self.mt5.account_info.return_value.server = 'Exness-MT5Real'
+        self.config['identity'] = [123, 'Exness-MT5Real']
+        self.config['allow_unvalidated_demo'] = True
+        with patch('scalp_lab.gold.validation', return_value=(False, 'Failed historical evaluation')):
+            with self.assertRaisesRegex(DemoError, 'Failed historical evaluation'):
+                self.execute()
         self.submit.assert_not_called()
 
+    def test_validated_live_account_can_submit_through_existing_gates(self):
+        self.mt5.account_info.return_value.trade_mode = self.mt5.ACCOUNT_TRADE_MODE_REAL
+        self.mt5.account_info.return_value.server = 'Exness-MT5Real'
+        self.config['identity'] = [123, 'Exness-MT5Real']
+        self.assertEqual(self.execute()['state'], 'filled')
+        self.submit.assert_called_once()
+
+    def test_changed_account_blocked(self):
+        self.mt5.account_info.return_value.login = 999
+        with self.assertRaises(DemoError):
+            self.execute()
+        self.submit.assert_not_called()
 
 
     def test_existing_positions_pending_orders_and_unavailable_exposure(self):
@@ -569,6 +577,13 @@ class AutoDemoTests(unittest.TestCase):
         self.submit.assert_not_called()
 
 
+
+    def test_pre_send_quote_change_skips_signal_and_leaves_automation_running(self):
+        self.submit.side_effect = auto.bridge.EntryQuoteMoved('Quote moved')
+        self.assertEqual(self.execute()['state'], 'skipped')
+        self.assertEqual(self.execute()['state'], 'waiting')
+        self.submit.assert_called_once()
+        self.stop.assert_not_called()
 
     def test_ambiguous_result_stops_and_never_retries(self):
 

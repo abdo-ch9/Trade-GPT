@@ -68,9 +68,9 @@ class RiskSummaryTests(unittest.TestCase):
                 db.execute('INSERT INTO days VALUES (?, ?, ?)', (json.dumps(identity), datetime.now(timezone.utc).strftime('%Y-%m-%d'), 200))
                 db.execute('CREATE TABLE entries (account TEXT, day TEXT)')
             db.close()
-            mt5 = Mock()
+            mt5 = Mock(ACCOUNT_TRADE_MODE_DEMO=0)
             mt5.positions_get.return_value = []
-            with patch.object(auto, 'JOURNAL', journal), patch.object(auto.bridge, 'api', return_value=mt5), patch.object(auto.bridge, 'checked_account', return_value=SimpleNamespace(equity=195, currency='USD')), patch.object(auto, 'daily_budget', return_value=56), patch.object(auto, 'portfolio_stop_risk', return_value=10):
+            with patch.object(auto, 'JOURNAL', journal), patch.object(auto.bridge, 'api', return_value=mt5), patch.object(auto.bridge, 'checked_account', return_value=SimpleNamespace(equity=195, currency='USD', trade_mode=0)), patch.object(auto, 'daily_budget', return_value=56), patch.object(auto, 'portfolio_stop_risk', return_value=10):
                 result = snapshots.risk_summary(identity, {'offset': 2})
                 self.assertEqual(result['remaining'], 41)
                 self.assertEqual(result['attempts'], 0)

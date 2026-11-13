@@ -13,6 +13,7 @@ import xml.etree.ElementTree as ET
 
 import requests
 from dotenv import dotenv_values
+from .mt5_demo import SYMBOL_SUFFIXES
 
 ROOT = Path(__file__).resolve().parents[1]
 CACHE = {}
@@ -20,6 +21,7 @@ LOCK = threading.Lock()
 INFERENCE_LOCK = threading.Lock()
 HEALTH = {}
 TTL = 300
+GOLD_SYMBOLS = {'GOLD'} | {('XAUUSD' + suffix).upper() for suffix in SYMBOL_SUFFIXES}
 CURRENCIES = {'EUR':'euro', 'USD':'US dollar', 'GBP':'British pound',
               'JPY':'Japanese yen', 'CHF':'Swiss franc', 'AUD':'Australian dollar',
               'NZD':'New Zealand dollar', 'CAD':'Canadian dollar', 'SGD':'Singapore dollar',
@@ -32,18 +34,21 @@ CURRENCIES = {'EUR':'euro', 'USD':'US dollar', 'GBP':'British pound',
 def configuration():
     local = dotenv_values(ROOT / '.env')
     def setting(name, default='', legacy_name=None):
-        return (os.getenv(name) or local.get(name) or
-                (os.getenv(legacy_name) or local.get(legacy_name) if legacy_name else '') or
-                default).strip()
-    provider = setting('IC_MARKETS_NEWS_PROVIDER','openai','XM_NEWS_PROVIDER').lower()
+        names = (name, name.replace('EXNESS_', 'IC_MARKETS_', 1), legacy_name) if legacy_name else (name,)
+        for key in names:
+            value = (os.getenv(key) or local.get(key) or '').strip()
+            if value:
+                return value
+        return default
+    provider = setting('EXNESS_NEWS_PROVIDER','openai','XM_NEWS_PROVIDER').lower()
     key = setting('OPENAI_API_KEY')
     if key.startswith('YOUR_'):
         key = ''
-    model = (setting('IC_MARKETS_OLLAMA_MODEL','qwen2.5:7b-instruct','XM_OLLAMA_MODEL')
+    model = (setting('EXNESS_OLLAMA_MODEL','qwen2.5:7b-instruct','XM_OLLAMA_MODEL')
              if provider=='ollama' else
-             setting('IC_MARKETS_NEWS_MODEL','gpt-4.1-mini','XM_NEWS_MODEL'))
+             setting('EXNESS_NEWS_MODEL','gpt-4.1-mini','XM_NEWS_MODEL'))
     return {'provider':provider, 'key':key, 'model':model,
-            'url':setting('IC_MARKETS_OLLAMA_URL','http://127.0.0.1:11434','XM_OLLAMA_URL').rstrip('/')}
+            'url':setting('EXNESS_OLLAMA_URL','http://127.0.0.1:11434','XM_OLLAMA_URL').rstrip('/')}
 
 
 def local_ollama_url(url):
@@ -61,7 +66,7 @@ def connection_status(config=None):
         return bool(config['key']), ('OpenAI news configured.' if config['key'] else
                                     'Configure Ollama locally or add OPENAI_API_KEY to .env.')
     if config['provider']!='ollama':
-        return False, 'Unsupported IC_MARKETS_NEWS_PROVIDER. Choose ollama or openai.'
+        return False, 'Unsupported EXNESS_NEWS_PROVIDER. Choose ollama or openai.'
     key = (config['url'],config['model'])
     now = time.time()
     with LOCK:
@@ -74,17 +79,17 @@ def connection_status(config=None):
         response.raise_for_status()
         models = {m['name'] for m in response.json().get('models',[])}
         result = (True, f"Ollama · {config['model']}") if config['model'] in models else (
-            False, f"Ollama is running, but model {config['model']} is not installed. Set IC_MARKETS_OLLAMA_MODEL to an installed model.")
+            False, f"Ollama is running, but model {config['model']} is not installed. Set EXNESS_OLLAMA_MODEL to an installed model.")
     except (requests.RequestException,ValueError,TypeError,KeyError):
-        result = False, 'Ollama is unavailable. Start Ollama and check IC_MARKETS_OLLAMA_URL in .env (local computer only).'
+        result = False, 'Ollama is unavailable. Start Ollama and check EXNESS_OLLAMA_URL in .env (local computer only).'
     with LOCK:
         HEALTH[key] = (now,result)
     return result
 
 
 def pair_name(symbol):
-    if symbol.upper() in ('GOLD','XAUUSD'):
-        return 'XAU/USD (spot gold priced in US dollars; IC Markets CFD, not COMEX futures)'
+    if symbol.upper() in GOLD_SYMBOLS:
+        return 'XAU/USD (spot gold priced in US dollars; Exness CFD, not COMEX futures)'
     # Only use a recognized leading FX pair; broker suffixes are retained in the UI.
     match = re.match(r'^([A-Z]{3})([A-Z]{3})', symbol.upper())
     if match and all(c in CURRENCIES for c in match.groups()):
@@ -118,7 +123,7 @@ def parse_headlines(xml, now):
 
 def fetch_headlines(symbol, now):
     match = re.match(r'^([A-Z]{3})([A-Z]{3})', symbol.upper())
-    if symbol.upper() in ('GOLD','XAUUSD'):
+    if symbol.upper() in GOLD_SYMBOLS:
         query = '(gold OR XAUUSD) (Federal Reserve OR inflation OR Treasury yields OR dollar OR geopolitics) when:1d'
     elif match and all(c in CURRENCIES for c in match.groups()):
         base, quote = match.groups()

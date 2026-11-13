@@ -17,6 +17,24 @@ def deadline(signal_open,offset):
     return float(signal_open)+60*(HOLD_BARS+1)-offset*3600
 
 
+def find_position_id(mt5, order, context):
+    def matches(deal):
+        return (deal.order == order and deal.symbol == context['symbol']
+                and deal.magic == context['magic'] and deal.entry == mt5.DEAL_ENTRY_IN)
+
+    deals = mt5.history_deals_get(ticket=order) or ()
+    ids = {deal.position_id for deal in deals if matches(deal) and deal.position_id}
+    if not ids:
+        orders = mt5.history_orders_get(ticket=order) or ()
+        for entry in orders:
+            if entry.ticket != order or not entry.position_id:
+                continue
+            history = mt5.history_deals_get(position=entry.position_id) or ()
+            if any(matches(deal) and deal.position_id == entry.position_id for deal in history):
+                ids.add(entry.position_id)
+    return next(iter(ids)) if len(ids) == 1 else None
+
+
 def close_request(mt5,position,context,identity):
     from .auto_demo import MAGIC
     from .gold import SYMBOLS
@@ -59,6 +77,7 @@ def manage(identity,db_path,now=None):
         db.execute('CREATE TABLE IF NOT EXISTS exits (token TEXT PRIMARY KEY, state TEXT, detail TEXT)')
         rows=db.execute("SELECT token,detail FROM entries WHERE account=? AND state='filled'",
                         (json.dumps(list(identity)),)).fetchall()
+        issues = []
         for token,detail in rows:
             data=json.loads(detail)
             context=data.get('execution_context',{})
@@ -68,24 +87,26 @@ def manage(identity,db_path,now=None):
             if previous and previous[0]=='closed':
                 continue
             order=data.get('order')
-            if not order:
-                record('error','Filled entry has no broker order ID; timed exit cannot identify it.',key=token+':missing-order')
+            position_id = data.get('position_id')
+            if not position_id and order:
+                position_id = find_position_id(mt5, order, context)
+                if position_id:
+                    data['position_id'] = position_id
+                    db.execute('UPDATE entries SET detail=? WHERE token=?', (json.dumps(data), token))
+                    db.commit()
+            if not position_id:
+                if now >= context['deadline_utc']:
+                    issues.append(f"{context['symbol']} order {order or 'unknown'}: MT5 could not verify the position for its timed exit.")
                 continue
-            entry_deals=mt5.history_deals_get(ticket=order)
-            if entry_deals is None or not entry_deals:
-                continue
-            ids={d.position_id for d in entry_deals if d.symbol==context['symbol'] and d.magic==context['magic']}
-            if len(ids)!=1:
-                record('error','Entry history does not identify exactly one owned position.',key=token+':identity')
-                continue
-            position_id=next(iter(ids))
             positions=mt5.positions_get(symbol=context['symbol'])
             if positions is None:
+                issues.append(f"{context['symbol']} order {order}: MT5 position lookup unavailable.")
                 continue
             owned=[p for p in positions if p.identifier==position_id]
             if not owned:
                 deals=mt5.history_deals_get(position=position_id)
                 if not deals or not any(d.entry in (mt5.DEAL_ENTRY_OUT,mt5.DEAL_ENTRY_OUT_BY) for d in deals):
+                    issues.append(f"{context['symbol']} order {order}: MT5 close history is unavailable.")
                     continue
                 summary={field:sum(float(getattr(d,field,0)) for d in deals)
                          for field in ('profit','commission','swap','fee')}
@@ -136,6 +157,8 @@ def manage(identity,db_path,now=None):
             if state!='sent':
                 from .auto_demo import stop
                 stop('Timed exit needs review in MT5; no automatic retry.')
+        if issues:
+            raise bridge.DemoError(' '.join(issues))
 
 
 def unresolved(db):

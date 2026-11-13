@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-`scalp_lab/` contains the research engines, market-data feeds, IC Markets/MT5 integration, decision history, and automation code. `dashboard.py` is the active GOLD/XAUUSD Streamlit interface; `dashboard_legacy.py` preserves the older multi-asset interface. `tests/test_*.py` covers the corresponding modules. `README.md` explains setup, while `GOLD_RESEARCH.md` records the active strategy, validation results, and limitations. `data/`, `demo_data/`, `auto_live/`, and `results_*/` are local, ignored research outputs.
+`scalp_lab/` contains the research engines, market-data feeds, Exness/MT5 integration, decision history, and automation code. `dashboard.py` is the active GOLD/XAUUSD Streamlit interface; `dashboard_legacy.py` preserves the older multi-asset interface. `tests/test_*.py` covers the corresponding modules. `README.md` explains setup, while `GOLD_RESEARCH.md` records the active strategy, validation results, and limitations. `data/`, `demo_data/`, `auto_live/`, and `results_*/` are local, ignored research outputs.
 
 ## Build, Test, and Development Commands
 

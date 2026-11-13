@@ -1,4 +1,4 @@
-"""IC Markets gold demo research desk. Legacy dashboard archived separately."""
+"""Exness gold research desk. Legacy dashboard archived separately."""
 import json
 import time
 import pandas as pd
@@ -8,37 +8,41 @@ from scalp_lab import gold, mt5_demo as bridge, auto_demo
 
 st.set_page_config(page_title='Gold research desk',layout='wide')
 st.title('Gold research desk')
-st.caption('XAU/USD · IC Markets demo · 0.01 lot · M1 / M5 / M15')
+st.caption('XAU/USD · Exness MT5 · M1 / M5 / M15')
 st.info('Entries require a named chart setup, current sourced AI news and broker risk checks. In user-approved demo research mode, historical validation is advisory. No win-rate guarantee.')
 
 
 @st.fragment(run_every='10s')
 def workspace():
-    offset=st.selectbox('Broker timestamp convention',[2,3,0],format_func=lambda x:f'UTC + {x} hours',key='gold_offset')
-    st.caption('Match the IC Markets MT5 server time offset; timestamps are never adjusted to hide stale data.')
-    if st.button('Connect IC Markets demo',key='gold_connect'):
+    offset=bridge.UTC_OFFSET_HOURS
+    st.caption('Exness MT5 timestamps use UTC.')
+    if st.button('Connect Exness MT5',key='gold_connect'):
         try:
-            st.session_state.gold_identity=bridge.connect()
+            st.session_state.gold_identity=bridge.connect(read_only=True)
         except bridge.DemoError as exc:
             st.error(str(exc))
     identity=st.session_state.get('gold_identity')
     if not identity:
-        st.info('Connect the installed IC Markets MT5 demo terminal to load gold prices and analysis.')
+        st.info('Connect the installed Exness MT5 terminal to load gold prices and analysis.')
         return
     try:
-        account,instruments=bridge.inspect(identity)
+        account,instruments=bridge.inspect(identity, read_only=True)
+        live_account = account.trade_mode == bridge.api().ACCOUNT_TRADE_MODE_REAL
+        mode = "real" if live_account else "demo"
+        if live_account:
+            st.warning("Exness real account connected. Order controls use real funds.")
         choices=[s for s in instruments if gold.eligible_symbol(s)]
         if not choices:
-            st.warning('IC Markets GOLD / XAUUSD is not available on this account.')
+            st.warning('No supported Exness XAUUSD instrument is available on this account.')
             return
         symbol=st.selectbox('Exact gold instrument',[s.name for s in choices])
         info=next(s for s in choices if s.name==symbol)
         st.caption(f'{symbol} · contract size {info.trade_contract_size:g} · equity {account.equity:,.2f} {account.currency}')
-        with st.expander('Forward demo performance and execution review'):
+        with st.expander(f'Forward {mode} performance and execution review'):
             from scalp_lab.forward_report import summarize
             forward = summarize(identity, auto_demo.JOURNAL)
             metrics = st.columns(4)
-            metrics[0].metric('Closed demo trades', forward['closed_trades'])
+            metrics[0].metric(f'Closed {mode} trades', forward['closed_trades'])
             metrics[1].metric('Net realized P&L', f"{forward['net_pnl']:.2f} {account.currency}")
             metrics[2].metric('Unresolved entries', forward['unresolved_entries'])
             metrics[3].metric('Unresolved exits', forward['unresolved_exits'])
@@ -51,17 +55,19 @@ def workspace():
                 st.dataframe(forward['trades'], hide_index=True, width='stretch')
             else:
                 st.info('No reconciled closed bot trades for this account yet. Signals and blocked decisions are not counted as executed trades.')
-            st.download_button('Download forward demo report', json.dumps(forward, indent=2), 'forward_demo_report.json')
+            st.download_button(f'Download forward {mode} report', json.dumps(forward, indent=2), f'forward_{mode}_report.json')
         with st.expander('Historical evaluation',expanded=True):
             st.write('Fixed rules; chronological 60/40 development/holdout split, four holdout time blocks, 15-minute simulated hold, daily bootstrap uncertainty and doubled-cost stress test.')
             if st.button('Fetch gold history and evaluate',key='gold_evaluate'):
                 with st.spinner('Evaluating historical gold candles…'):
                     with bridge.LOCK:
                         mt5=bridge.api()
+                        bridge.checked_account(mt5, identity)
                         mt5.symbol_select(symbol,True)
                         rates=mt5.copy_rates_from_pos(symbol,mt5.TIMEFRAME_M1,0,60000)
+                        bridge.checked_account(mt5, identity)
                     if rates is None or len(rates)<1000:
-                        raise bridge.DemoError('Need more gold M1 history. Open GOLD M1 in MT5 and load history.')
+                        raise bridge.DemoError(f'Need more gold M1 history. Open {symbol} M1 in MT5 and load history.')
                     bars=pd.DataFrame(rates)
                     bars=bars[bars.time+60<=time.time()+offset*3600]
                     report,trades=gold.evaluate(bars,symbol,info.point)
@@ -89,7 +95,7 @@ def workspace():
                     st.caption('Costs: bar spread, adverse slippage of max(1 tick, 5% of M1 ATR) per fill, assumed $0.10/oz round-trip commission. Stops win same-bar collisions. Actual broker costs may differ.')
                     st.download_button('Download evaluation',json.dumps(report,indent=2),'gold_validation.json')
                 else:
-                    st.info('No current IC Markets evaluation for this instrument. Run a fresh evaluation using this account’s gold history.')
+                    st.info('No current Exness evaluation for this instrument. Run a fresh evaluation using this account’s gold history.')
             except (OSError,ValueError,KeyError):
                 st.info('No gold evaluation yet.')
         from scalp_lab.gold_worker import status as worker_status, healthy as worker_healthy, ensure_running
@@ -122,7 +128,7 @@ def workspace():
             result = read_snapshot(identity, symbol, offset)
             if result is None or not worker_healthy(worker):
                 st.warning('Waiting for a fresh worker snapshot. Previous signals are not actionable.')
-                auto_demo.render(identity, [info], offset)
+                auto_demo.render(identity, [info], offset, mode=mode)
                 return
             st.caption(f"Shared worker snapshot · {result['snapshot_age_seconds']:.0f}s old")
         else:
@@ -161,18 +167,18 @@ def workspace():
         st.plotly_chart(fig,width='stretch')
         if result['scenarios']:
             st.dataframe(pd.DataFrame(result['scenarios']).T, width='stretch')
-            st.caption('Indicative levels; risk_pct is estimated stop loss / demo equity × 100. Actual fills, fees and gaps can change loss.')
+            st.caption('Indicative levels; risk_pct is estimated stop loss / account equity × 100. Actual fills, fees and gaps can change loss.')
         st.write('**AI news:** '+result['news'].get('reason','Unavailable'))
         with st.expander('News evidence'):
             for article in result['news'].get('articles',[]):
                 st.link_button(article['title'],article['url'])
         with st.expander('Inputs and limitations'):
             st.dataframe([
-                {'Input':'IC Markets M1/M5/M15 price, spread, ATR, RSI, structure','Status':'Measured / calculated'},
+                {'Input':'Exness M1/M5/M15 price, spread, ATR, RSI, structure','Status':'Measured / calculated'},
                 {'Input':'VWAP and relative volume','Status':'Tick-volume proxies; not consolidated traded volume'},
                 {'Input':'Gold macro headlines','Status':'Ollama assessment of cited recent headlines'},
                 {'Input':'DXY, Treasury / real yields, economic calendar','Status':'Not connected; no scheduled-event blackout guarantee'},
-                {'Input':'COMEX depth, delta, open interest, real volume profile','Status':'Not connected; never inferred from IC Markets ticks'},
+                {'Input':'COMEX depth, delta, open interest, real volume profile','Status':'Not connected; never inferred from Exness ticks'},
                 {'Input':'ML probabilities / 60% win rate','Status':'No calibrated probability claim'}],hide_index=True)
             st.write('Setups: aligned M5/M15 trend pullback; breakout retest anchored to the original broken level; range sweep. ATR defines stops; target is 1.8R. New bot entries share the backtest deadline: 15 minutes after the signal candle closes, with earlier broker SL/TP exits. Actual timed fills can be delayed by quote/connection availability.')
         if not auto_demo.settings().get('enabled'):
@@ -184,7 +190,7 @@ def workspace():
                 'entry':scenario.get('entry'),'stop_loss':scenario.get('sl'),'take_profit':scenario.get('tp'),
                 'position_lots':scenario.get('lots'),'risk_pct':scenario.get('risk_pct'),
                 'risk_amount':scenario.get('risk_amount'),'account_currency':scenario.get('currency')}
-        auto_demo.render(identity,[info],offset)
+        auto_demo.render(identity,[info],offset,mode=mode)
     except (bridge.DemoError,ValueError) as exc:
         st.warning(str(exc))
 

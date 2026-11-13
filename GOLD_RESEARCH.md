@@ -6,7 +6,7 @@ automation was stopped. No existing MT5 order or position was changed.
 
 ## Implemented
 
-- Exact IC Markets GOLD/XAUUSD instrument allowlist; excludes mining stocks and GOLD24-7.
+- Exact gold instrument allowlist for `GOLD`, `XAUUSD`, and Exness variants `XAUUSDm`, `XAUUSDc`, `XAUUSDr`, and `XAUUSDz`. The terminal must identify the instrument's profit currency as USD.
 - Completed M1, M5 and M15 data; indicators reset across missing minutes.
 - Three fixed hypotheses: trend pullback, breakout/retest, range sweep.
 - EMA 9/20, ATR14, RSI, prior structure, previous-day extremes, tick-relative
@@ -16,8 +16,8 @@ automation was stopped. No existing MT5 order or position was changed.
 - Ollama interprets sourced gold/macro headlines; news remains required for entries.
 - Chronological 60/40 split; four holdout time blocks; daily block bootstrap;
   cost stress test; CSV research trade log and JSON evaluation report.
-- Existing demo-only broker checks, daily risk budget, five entry attempts,
-  duplicate-candle journal and ambiguous-order protection retained for gold.
+- Exness account checks, daily risk budget, five entry attempts, duplicate-candle
+  journal and ambiguous-order protection apply to demo and real gold orders.
 
 ## What the backtest means
 
@@ -79,13 +79,10 @@ with order submission disabled. The saved diagnostic rerun is
 This already-viewed sample cannot prove profitability or select a winner without
 further unseen evaluation. No new macro or exchange data feed was connected.
 
-IC Markets CFDs and COMEX futures are different instruments. IC Markets tick volume
+Exness CFDs and COMEX futures are different instruments. Exness tick volume
 is not consolidated exchange volume. News headlines do not replace a complete calendar.
 
-The saved evaluation predates the broker change and does not identify IC Markets.
-It is retained as historical research only and cannot authorize entries. Fresh IC
-Markets candles, spreads, contract details and a new evaluation are required; the
-dashboard blocks reports without IC Markets broker metadata.
+Evaluations from prior brokers are retained as historical research. The validation gate requires an Exness evaluation for the exact symbol, using fresh Exness candles and spread data.
 
 ## Research output
 

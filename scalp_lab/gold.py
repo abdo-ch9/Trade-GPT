@@ -15,7 +15,7 @@ ENGINE='gold-structure-v2'
 PUBLISHED_THROUGH=1793887020.0
 ROOT=Path(__file__).resolve().parents[1]
 REPORT=ROOT/'gold_validation.json'
-SYMBOLS={'GOLD','XAUUSD'}
+SYMBOLS={'GOLD'} | {'XAUUSD' + suffix for suffix in bridge.SYMBOL_SUFFIXES}
 
 
 def eligible_symbol(info):
@@ -100,7 +100,7 @@ def validation(symbol):
         r=json.loads(REPORT.read_text())
         if (r.get('broker')!=bridge.BROKER_NAME or r.get('engine')!=ENGINE or r.get('symbol')!=symbol
             or r.get('execution_policy')!=EXIT_POLICY or not 0<=time.time()-r['created_at']<7*86400):
-            return False,'Run a current IC Markets historical evaluation for this exact gold instrument and the 15-minute hold.'
+            return False,'Run a current Exness historical evaluation for this exact gold instrument and the 15-minute hold.'
         if r.get('eligible') and not r.get('live_exit_validated',False):
             return False,'Chart research passed, but matching live exit management and forward paper validation are still required.'
         return r['eligible'],r['reason']
@@ -108,10 +108,10 @@ def validation(symbol):
         return False,'Run historical evaluation before enabling gold entries.'
 
 
-def snapshot(identity,symbol,offset,horizon=5,include_headlines=False):
+def snapshot(identity,symbol,offset,horizon=5,include_headlines=False,*,read_only=False):
     with bridge.LOCK:
         mt5=bridge.api()
-        bridge.checked_account(mt5,identity)
+        bridge.checked_account(mt5,identity,read_only=read_only)
         info=mt5.symbol_info(symbol)
         if info is None or not eligible_symbol(info):
             raise bridge.DemoError('Only the verified USD gold instrument is supported.')
@@ -119,6 +119,7 @@ def snapshot(identity,symbol,offset,horizon=5,include_headlines=False):
         mt5.copy_rates_from_pos(symbol,mt5.TIMEFRAME_M1,0,3000)
     news=get_news(symbol,include_headlines=True)
     with bridge.LOCK:
+        bridge.checked_account(mt5,identity,read_only=read_only)
         rates=mt5.copy_rates_from_pos(symbol,mt5.TIMEFRAME_M1,0,3000)
         tick=bridge.quote(mt5,symbol,offset)
     now=time.time()
@@ -163,22 +164,35 @@ def snapshot(identity,symbol,offset,horizon=5,include_headlines=False):
         blockers.append('Spread exceeds 20% of M5 ATR.')
     if abs((tick.ask+tick.bid)/2-row.close)>row.atr:
         blockers.append('Price moved more than one M1 ATR since the signal close.')
-    valid,reason=execution_validation(symbol)
-    if not valid:
-        blockers.append(reason)
     _,news_reason=news_gate(news,side,now)
-    if news_reason:
-        blockers.append(news_reason)
+    if read_only:
+        if news_reason:
+            blockers.append(news_reason)
+        result.update(action=f'{side} research signal' if not blockers else 'BLOCKED',
+                      ready=False,
+                      reasons=[f'{side}: {row.setup}; {row.regime}.']+blockers)
+        return result,{}
     with bridge.LOCK:
         account=bridge.checked_account(mt5,identity)
         add_scenario_risk(result,mt5,symbol,account)
+    demo = account.trade_mode == mt5.ACCOUNT_TRADE_MODE_DEMO
+    valid,reason=execution_validation(symbol,demo=demo,identity=identity)
+    if not valid:
+        blockers.append(reason)
+    if news_reason:
+        blockers.append(news_reason)
     scenario=result['scenarios'][side]
     # Necessary affordability check only. Final execution also accounts for daily loss and exposures.
     from .auto_demo import settings,daily_budget
-    budget=daily_budget(settings(),account.equity,account.currency)
+    budget_config={**settings(), 'identity':identity, 'symbols':[symbol], 'offset':offset}
+    try:
+        budget=daily_budget(budget_config,account.equity,account.currency)
+    except bridge.DemoError as exc:
+        budget=None
+        blockers.append(str(exc))
     risk=scenario.get('risk_amount')
-    affordable=risk is not None and risk*1.2<=budget
-    if not affordable:
+    affordable=budget is not None and risk is not None and risk*1.2<=budget
+    if budget is not None and not affordable:
         blockers.append(f'Minimum approved size 0.01 lot exceeds the configured daily budget or its risk is unavailable (budget {budget:.2f} {account.currency}, including a 20% cost reserve).')
     result['checks'] += [{'Check':'Spread ≤ 20% of M5 ATR','Passed':bool(spread<=.2*row.atr5)},
                          {'Check':'Quote within one M1 ATR of signal close','Passed':bool(abs((tick.ask+tick.bid)/2-row.close)<=row.atr)},
@@ -190,16 +204,21 @@ def snapshot(identity,symbol,offset,horizon=5,include_headlines=False):
     return result,{}
 
 
-def execution_validation(symbol,config=None):
-    """Explicit demo research override; historical results remain unchanged."""
+def execution_validation(symbol,config=None,*,demo,identity=None):
+    """Apply any authorized session override without changing historical results."""
     if config is None:
         try:
             config=json.loads((ROOT/'xm_auto_demo.json').read_text())
         except (OSError,ValueError):
             config={}
-    if (config.get('allow_unvalidated_demo') is True and config.get('engine')==ENGINE
-        and symbol in SYMBOLS and symbol in config.get('symbols',[])):
+    matches = config.get('engine') == ENGINE and symbol in SYMBOLS and symbol in config.get('symbols', [])
+    if demo and matches and config.get('allow_unvalidated_demo') is True:
         return True,'User-approved demo research: historical validation is advisory.'
+    if (not demo and matches and identity is not None
+        and tuple(config.get('identity', [])) == tuple(identity)
+        and config.get('enabled') is True and config.get('allow_unvalidated_live') is True
+        and time.time() < config.get('expires', 0)):
+        return True,'Historical validation overridden for this live automation session.'
     return validation(symbol)
 
 

@@ -1,0 +1,13 @@
+{
+  "pid": 33076,
+  "started": 1794495937.3707519,
+  "scanner": "waiting for next scan",
+  "exit_policy": "signal-close-plus-15m-v1",
+  "last_exit_check": 1794502569.5866477,
+  "heartbeat": 1794502569.586649,
+  "entries_enabled": true,
+  "scanner_alive": true,
+  "exit_error": null,
+  "scan_started": 1794502567.63199,
+  "last_scan": 1794502567.6851056
+}

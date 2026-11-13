@@ -18,7 +18,7 @@ class SessionBindingTests(unittest.TestCase):
              patch.object(auto.bridge, 'api', return_value=mt5), \
              patch.object(auto.bridge, 'checked_account'), \
              patch.object(auto, 'save') as save:
-            result = auto.bind_stopped_session([321, 'ICMarketsSC-Demo'], list(symbols), 2)
+            result = auto.bind_stopped_session([321, 'Exness-MT5Trial'], list(symbols), 2)
             save.assert_called_once_with(result)
             mt5.order_send.assert_not_called()
             return result
@@ -27,7 +27,7 @@ class SessionBindingTests(unittest.TestCase):
         result = self.bind({'enabled': False, 'symbols': ['GOLD'],
                             'allow_unvalidated_demo': True, 'daily_loss_usd': 30})
         self.assertEqual(result['symbols'], ['XAUUSD'])
-        self.assertEqual(result['identity'], [321, 'ICMarketsSC-Demo'])
+        self.assertEqual(result['identity'], [321, 'Exness-MT5Trial'])
         self.assertTrue(result['allow_unvalidated_demo'])
         self.assertEqual(result['daily_loss_usd'], 30)
         self.assertFalse(result['enabled'])

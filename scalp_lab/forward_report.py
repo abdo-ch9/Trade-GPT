@@ -1,4 +1,4 @@
-"""Account-scoped forward demo diagnostics; never authorizes live orders."""
+"""Account-scoped forward execution diagnostics."""
 import json
 import math
 import sqlite3
@@ -13,7 +13,7 @@ def summarize(identity, db_path):
               'win_rate': None, 'profit_factor': None, 'mean_r': None,
               'max_closed_drawdown': 0.0, 'mean_latency_seconds': None,
               'states': {}, 'trades': [], 'live_ready': False,
-              'note': 'Forward demo diagnostics only. No automatic live authorization; open-position losses are excluded from closed-trade metrics.'}
+              'note': 'Forward execution diagnostics. Closed-trade metrics exclude open-position losses.'}
     if not Path(db_path).exists():
         return report
     with closing(sqlite3.connect(db_path, timeout=2)) as db:
