@@ -1,6 +1,6 @@
 # ScalpLab
 
-ScalpLab is a local Python gold research app for IC Markets and Exness. The active interface is `src/main/code/dashboard.py`; choose the broker at the top of the page, then connect its Windows MetaTrader 5 terminal. IC Markets accepts demo accounts only. Exness accepts demo and real accounts and labels real-money controls explicitly. Each broker retains its own chart, validation, order, and exit rules. `src/main/code/dashboard_legacy.py` and the `python -m scalp_lab` CLI retain the older Alpaca stock research workflow.
+ScalpLab is a local Python gold research app for IC Markets and Exness. The active interface is the eight-page Streamlit terminal launched by `src/main/code/dashboard.py`. Choose a broker in the sidebar and connect its Windows MetaTrader 5 terminal. IC Markets accepts demo accounts only. Exness accepts demo and real accounts and labels real-money controls explicitly. Each broker retains its own chart, validation, order, and exit rules. `src/main/code/dashboard_legacy.py` and the `python -m scalp_lab` CLI retain the older Alpaca stock research workflow.
 
 The initial gold strategy failed its historical cost test, so normal validation blocks automatic entries. An explicit demo research override exists, but it does not establish profitability. Exness real-money automation requires its own validation gates. See [GOLD_RESEARCH.md](GOLD_RESEARCH.md) for IC Markets and [GOLD_RESEARCH_EXNESS.md](GOLD_RESEARCH_EXNESS.md) for Exness.
 
@@ -44,9 +44,17 @@ The older stock pipeline can be checked with synthetic data:
 
 For historical Alpaca stock data, fill `ALPACA_API_KEY` and `ALPACA_API_SECRET` in `.env`, then use `python -m scalp_lab fetch --help`. Alpaca data is not the gold broker feed and does not authorize IC Markets orders.
 
+## Terminal pages and architecture
+
+The sidebar provides **Dashboard** (account and health), **Trading terminal** (chart and explicit manual controls), **AI market intelligence** (technical and sourced news evidence), **Automation center** (entry scanner and watchdog), **Risk management** (read-only limits and exposure), **Settings** (non-secret configuration), **Strategy & backtesting** (historical evaluation), and **Trade history & analytics** (MT5 orders, fills, saved signals, events, and downloads). All pages have disconnected and empty states. The sidebar can be collapsed with Streamlit's native control.
+
+`src/main/code/frontend/app.py` registers native Streamlit pages. `frontend/context.py` keeps the selected broker and account identity in session state. `frontend/services.py` calls the existing broker modules for read-only snapshots, reports, and history; its research snapshot cache expires after ten seconds and daily deal P&L after fifteen seconds. Historical evaluation runs on a background thread. `frontend/components.py` and `frontend/styles.py` define reusable display elements and the dark theme. Each `frontend/pages/` module owns one workspace. Manual orders continue through the existing broker UI helpers and backend risk checks. Page rendering and navigation never submit an order. See [FRONTEND_AUDIT.md](FRONTEND_AUDIT.md) for the former-to-current feature map.
+
+To add a page, create a `render()` function in `frontend/pages/`, register it with a unique `url_path` in `frontend/app.py`, and use `page_state()` plus read-only adapters from `frontend/services.py`. Keep account validation, order submission, and risk policy in the broker packages. Put any new local runtime files under ignored `lib/` and secrets only in root `.env`.
+
 ## Repository and local files
 
-`src/main/code/dashboard.py` selects `dashboard_ic.py` or `dashboard_exness.py`. IC Markets lives in `src/main/code/scalp_lab/`; Exness broker-specific modules live in `src/main/code/scalp_lab_exness/` and share unchanged research modules from `scalp_lab/`. Each package uses separate paths and background workers. `src/test/code/tests/` holds `unittest` cases. Root `.venv` and `.env` hold the ignored local environment and credentials. `lib/` holds ignored records and worker locks. A fresh checkout starts without historical evaluation or saved broker state.
+`src/main/code/dashboard.py` launches `frontend/app.py`. The former `dashboard_ic.py` and `dashboard_exness.py` are retained as reference only. IC Markets lives in `src/main/code/scalp_lab/`; Exness broker-specific modules live in `src/main/code/scalp_lab_exness/` and share unchanged research modules from `scalp_lab/`. Each package uses separate paths and background workers. `src/test/code/tests/` holds `unittest` cases, including display-only frontend checks. Root `.venv` and `.env` hold the ignored local environment and credentials. `lib/` holds ignored records and worker locks. A fresh checkout starts without historical evaluation or saved broker state.
 
 ## Shared dashboard and background news
 
