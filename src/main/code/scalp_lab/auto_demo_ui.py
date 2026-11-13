@@ -71,13 +71,21 @@ def render(identity,instruments,offset):
             auto.bind_stopped_session(identity, symbols, offset)
             st.rerun()
     from .gold import execution_validation
-    trade_validated=bool(symbols) and all(execution_validation(s)[0] for s in symbols)
+    start_blockers = []
+    if not news_connected:
+        start_blockers.append(news_connection_reason)
+    if len(symbols) != 1:
+        start_blockers.append('Choose exactly one verified gold instrument that supports 0.01 lot.')
+    elif context_changed:
+        start_blockers.append('Use the connected demo account and gold instrument before starting.')
+    else:
+        validated, reason = execution_validation(symbols[0], config)
+        if not validated:
+            start_blockers.append(reason)
     if auto.settings().get('allow_unvalidated_demo') is True:
         st.warning('User-approved demo research: historical tests are advisory. New bot positions use broker SL/TP and a 15-minute candle-based exit deadline. News and account risk limits still apply.')
     if auto.settings().get('exclude_tesla_stop_risk') is True:
         st.warning('Tesla is excluded from open-position stop-risk estimates at your request. Its account-equity gains/losses still count. The daily budget does not cover Tesla’s additional loss to its stop.')
-    if not trade_validated:
-        st.info('Research mode: gold analysis continues below the chart. Automatic trading is unavailable until historical evidence and matching live exit management are validated.')
     budget_label=(f"${auto.settings()['daily_loss_usd']:.2f} daily loss budget" if auto.settings().get('daily_loss_usd') is not None else '1% daily equity budget')
     if auto.settings().get('daily_loss_eur') is not None:
         budget_label = f"€{auto.settings()['daily_loss_eur']:.2f} daily loss budget (converted using fresh EURUSD bid for USD accounts)"
@@ -85,10 +93,20 @@ def render(identity,instruments,offset):
     st.caption('Background worker runs with the browser closed, for up to eight hours of entries per start. Stop blocks new entries; timed exits for new bot positions remain active. Keep this computer and MT5 running. Broker stops remain in place if the worker is offline; timed exits can be delayed by downtime or unavailable quotes.')
     config=auto.settings()
     left,right=st.columns(2)
-    if left.button('Start automatic DEMO trading',disabled=config.get('enabled',False) or not news_connected or not trade_validated,key='start_auto_demo'):
-        auto.arm(identity,symbols,offset)
+    if left.button('Start automatic DEMO trading', disabled=config.get('enabled', False), key='start_auto_demo'):
+        if start_blockers:
+            st.warning(' '.join(start_blockers))
+        else:
+            try:
+                auto.arm(identity, symbols, offset)
+            except bridge.DemoError as exc:
+                st.error(str(exc))
+            else:
+                st.rerun()
     if right.button('Stop automatic trading',key='stop_auto_demo'):
         auto.stop()
+    if start_blockers and not config.get('enabled'):
+        st.caption('Start requirements: ' + ' '.join(start_blockers))
     config=auto.settings()
     st.write('**Automation: '+('RUNNING**' if config.get('enabled') else 'STOPPED**'))
     if config.get('stop_reason'):

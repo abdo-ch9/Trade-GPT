@@ -91,13 +91,15 @@ class GoldTests(unittest.TestCase):
         identity = (123, 'Exness-MT5Real32')
         config = {'enabled': True, 'allow_unvalidated_live': True, 'engine': gold.ENGINE,
                   'identity': list(identity), 'symbols': ['XAUUSDm'], 'expires': time.time()+60}
-        with patch.object(gold, 'validation', return_value=(False, 'Failed evaluation')):
+        with patch.object(gold, 'validation', return_value=(False, gold.HOLDOUT_FAILURE)):
             self.assertTrue(gold.execution_validation('XAUUSDm', config, demo=False, identity=identity)[0])
             self.assertFalse(gold.execution_validation('XAUUSDm', config, demo=False)[0])
             self.assertFalse(gold.execution_validation('XAUUSD', config, demo=False, identity=identity)[0])
             self.assertFalse(gold.execution_validation('XAUUSDm', config, demo=False, identity=(999, identity[1]))[0])
             for change in ({'enabled': False}, {'expires': time.time()-1}):
                 self.assertFalse(gold.execution_validation('XAUUSDm', {**config, **change}, demo=False, identity=identity)[0])
+        with patch.object(gold, 'validation', return_value=(False, 'Missing evaluation')):
+            self.assertFalse(gold.execution_validation('XAUUSDm', config, demo=False, identity=identity)[0])
 
     def test_previously_viewed_history_cannot_authorize(self):
         b=bars()

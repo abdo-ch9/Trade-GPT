@@ -16,6 +16,10 @@ ENGINE='gold-structure-v2'
 PUBLISHED_THROUGH=1793887020.0
 ROOT=LIB_DIR
 REPORT=ROOT/'gold_validation.json'
+HOLDOUT_FAILURE = (
+    'Research only: positive expectancy is not established on unseen bars across holdout '
+    'periods, daily bootstrap uncertainty and doubled costs (minimum 50 trades / 10 traded sessions).'
+)
 SYMBOLS={'GOLD'} | {'XAUUSD' + suffix for suffix in bridge.SYMBOL_SUFFIXES}
 
 
@@ -217,12 +221,14 @@ def execution_validation(symbol,config=None,*,demo,identity=None):
     matches = config.get('engine') == ENGINE and symbol in SYMBOLS and symbol in config.get('symbols', [])
     if demo and matches and config.get('allow_unvalidated_demo') is True:
         return True,'User-approved demo research: historical validation is advisory.'
+    valid, reason = validation(symbol, broker_exit=True)
     if (not demo and matches and identity is not None
         and tuple(config.get('identity', [])) == tuple(identity)
         and config.get('enabled') is True and config.get('allow_unvalidated_live') is True
+        and not valid and reason == HOLDOUT_FAILURE
         and time.time() < config.get('expires', 0)):
         return True,'Historical validation overridden for this live automation session.'
-    return validation(symbol, broker_exit=True)
+    return valid, reason
 
 
 def simulate(d,point,cost_multiplier=1):
@@ -336,7 +342,7 @@ def evaluate(bars,symbol,point):
     elif eligible:
         reason='Chart cost tests passed on bars after the previously inspected sample; current news and execution checks still required.'
     else:
-        reason='Research only: positive expectancy is not established on unseen bars across holdout periods, daily bootstrap uncertainty and doubled costs (minimum 50 trades / 10 traded sessions).'
+        reason = HOLDOUT_FAILURE
     report={'broker':bridge.BROKER_NAME,'engine':ENGINE,'symbol':symbol,'created_at':time.time(),'bars':len(d),
             'first_bar':float(d.time.iloc[0]),'last_bar':last,'holdout_start':cutoff,
             'holdout':summary,'stress':stats(stress),'chronological_folds':folds,

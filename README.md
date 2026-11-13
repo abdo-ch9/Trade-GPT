@@ -95,3 +95,34 @@ Open trades and signals are not counted as completed trades. Download the JSON
 report to retain the evidence from each test period. These diagnostics do not
 validate profitability or authorize live trading; the demo-only broker block stays
 in place. Worker startup retries transient MT5 initialization failures three times.
+
+## XAU/USD paper forecasts
+
+Select **Paper forecasts** in the existing dashboard, choose the broker and connect
+MT5 to observe completed candles. This workspace reads market data and produces
+paper signals. It has no order submission path. The broker dashboard remains
+available separately.
+
+Train offline from a saved MT5 M1 CSV. In PowerShell, from the repository root:
+
+```powershell
+$env:PYTHONPATH='src/main/code'
+$env:OMP_NUM_THREADS='2'
+.\.venv\Scripts\python.exe -m scalp_lab.forecast train lib/exness/gold_history.csv lib/exness/forecast-XAUUSDm.joblib --point .001
+.\.venv\Scripts\python.exe -m scalp_lab.forecast benchmark lib/exness/gold_history.csv lib/exness/forecast-XAUUSDm.joblib --point .001
+```
+
+The CSV columns are `time,open,high,low,close,tick_volume,spread`. Use the broker
+instrument's exact point size and `--offset` if the source timestamps use server
+time. Set `--broker` and `--symbol` for the exact source instrument. Existing
+historical exports are reused directly. Keep the source CSV immutable and retain
+its SHA-256 with the report. The worker caches recent completed candles in memory
+and requests a bounded recent tail from MT5. Artifacts are Python joblib files.
+Load only artifacts you generated or trust. Restart the dashboard after replacing
+an artifact so active fragments pick it up.
+
+Optional comparison models and pytest can be installed with
+`python -m pip install -r requirements-research.txt`. The CLI reports unavailable
+boosting models explicitly. The forecast tests run with pytest or the standard
+unittest suite. See [the evaluation and benchmark](reports/final_summary.md) for
+the archive results and limits.
