@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-`src/main/code/scalp_lab/` contains the research engines, market-data feeds, IC Markets/MT5 integration, decision history, and automation code. `src/main/code/dashboard.py` is the active GOLD/XAUUSD Streamlit interface; `src/main/code/dashboard_legacy.py` preserves the older multi-asset interface. `src/test/code/tests/test_*.py` covers the corresponding modules. `README.md` explains setup, while `GOLD_RESEARCH.md` records the active strategy, validation results, and limitations. Root `.venv` and `.env` hold the ignored local environment and credentials; `lib/` holds ignored journals, locks, history, and research output.
+`src/main/code/scalp_lab/` contains the research engines and IC Markets/MT5 integration. Broker-specific Exness modules are in `src/main/code/scalp_lab_exness/`. `src/main/code/dashboard.py` selects the IC Markets or Exness gold interface; `src/main/code/dashboard_legacy.py` preserves the older multi-asset interface. `src/test/code/tests/test_*.py` covers both brokers. `README.md`, `GOLD_RESEARCH.md`, and `GOLD_RESEARCH_EXNESS.md` explain setup and validation limits. Root `.venv` and `.env` hold the ignored local environment and credentials; `lib/` holds ignored journals, locks, history, and research output.
 
 ## Build, Test, and Development Commands
 

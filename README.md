@@ -2,7 +2,7 @@
 
 ScalpLab is a local Python gold research app for IC Markets and Exness. The active interface is `src/main/code/dashboard.py`; choose the broker at the top of the page, then connect its Windows MetaTrader 5 terminal. IC Markets accepts demo accounts only. Exness accepts demo and real accounts and labels real-money controls explicitly. Each broker retains its own chart, validation, order, and exit rules. `src/main/code/dashboard_legacy.py` and the `python -m scalp_lab` CLI retain the older Alpaca stock research workflow.
 
-The initial gold strategy failed its historical cost test, so normal validation blocks automatic entries. An explicit demo research override exists, but it does not establish profitability. Exness real-money automation requires its own validation gates. See [GOLD_RESEARCH.md](GOLD_RESEARCH.md) for the IC Markets study and limitations.
+The initial gold strategy failed its historical cost test, so normal validation blocks automatic entries. An explicit demo research override exists, but it does not establish profitability. Exness real-money automation requires its own validation gates. See [GOLD_RESEARCH.md](GOLD_RESEARCH.md) for IC Markets and [GOLD_RESEARCH_EXNESS.md](GOLD_RESEARCH_EXNESS.md) for Exness.
 
 ## Software to install
 
