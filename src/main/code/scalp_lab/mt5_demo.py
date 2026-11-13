@@ -1,5 +1,6 @@
 """IC Markets MT5 demo orders. Never accepts a real account."""
 import math
+import os
 import sqlite3
 import threading
 import time
@@ -8,9 +9,10 @@ from contextlib import closing
 from decimal import Decimal
 from datetime import datetime, timezone
 from pathlib import Path
+from dotenv import dotenv_values
 
 LOCK=threading.RLock()
-from .paths import LIB_DIR
+from .paths import LIB_DIR, ENV_FILE
 LEDGER=LIB_DIR/"demo_orders.sqlite3"
 BROKER_NAME="IC Markets"
 # MQL5 symbol bit flags (not exported by the Python extension).
@@ -49,10 +51,18 @@ def checked_account(mt5,expected=None):
     return account
 
 
+def initialize(mt5, path=""):
+    """Select the IC Markets terminal in both dashboard and worker."""
+    if not path:
+        path = (os.getenv("IC_MARKETS_MT5_PATH") or
+                dotenv_values(ENV_FILE).get("IC_MARKETS_MT5_PATH") or "").strip()
+    return mt5.initialize(path, timeout=10000) if path else mt5.initialize(timeout=10000)
+
+
 def connect(path=""):
     with LOCK:
         mt5=api()
-        ok=mt5.initialize(path,timeout=10000) if path else mt5.initialize(timeout=10000)
+        ok=initialize(mt5,path)
         if not ok:
             raise DemoError("Cannot connect to MT5. Install the IC Markets MT5 terminal, open it, and sign in to demo.")
         account=checked_account(mt5)

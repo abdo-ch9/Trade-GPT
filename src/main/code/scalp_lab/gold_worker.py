@@ -75,7 +75,7 @@ def ensure_running():
 
     with open(ROOT/'gold_worker.log','a',encoding='utf-8') as log:
 
-        subprocess.Popen([sys.executable,'-m','scalp_lab.gold_worker'],cwd=PROJECT_ROOT,
+        subprocess.Popen([sys.executable,'-m','scalp_lab.gold_worker'],cwd=PROJECT_ROOT/'src/main/code',
 
             stdout=log,stderr=log,stdin=subprocess.DEVNULL,
 
@@ -97,7 +97,7 @@ def reconnect(identity):
 
         if terminal is None or not terminal.connected or mt5.account_info() is None:
 
-            if not mt5.initialize(timeout=10000):
+            if not bridge.initialize(mt5):
 
                 raise bridge.DemoError('Background worker cannot reconnect to MT5. Keep the demo terminal open and connected.')
 
@@ -113,7 +113,7 @@ def initialize_worker(mt5):
 
     for attempt in range(3):
 
-        if mt5.initialize(timeout=10000):
+        if bridge.initialize(mt5):
 
             return True
 

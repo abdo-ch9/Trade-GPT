@@ -1,13 +1,13 @@
 # ScalpLab
 
-ScalpLab is a local Python research app for IC Markets demo GOLD/XAUUSD. The active interface is `src/main/code/dashboard.py`; it reads broker candles and quotes through the Windows MetaTrader 5 terminal, evaluates a fixed gold strategy, checks sourced AI news, and supports reviewed demo orders. `src/main/code/dashboard_legacy.py` and the `python -m scalp_lab` CLI retain the older, separate Alpaca stock research workflow. The MT5 integration accepts IC Markets demo accounts only; real-money accounts are always blocked.
+ScalpLab is a local Python gold research app for IC Markets and Exness. The active interface is `src/main/code/dashboard.py`; choose the broker at the top of the page, then connect its Windows MetaTrader 5 terminal. IC Markets accepts demo accounts only. Exness accepts demo and real accounts and labels real-money controls explicitly. Each broker retains its own chart, validation, order, and exit rules. `src/main/code/dashboard_legacy.py` and the `python -m scalp_lab` CLI retain the older Alpaca stock research workflow.
 
-The initial gold strategy failed its historical cost test, so normal validation blocks automatic entries. An explicit demo research override exists, but it does not establish profitability. Do not interpret a signal or a demo fill as evidence of profitability. See [GOLD_RESEARCH.md](GOLD_RESEARCH.md) for the rules, results, and limitations. The app is for local research and demo accounts only.
+The initial gold strategy failed its historical cost test, so normal validation blocks automatic entries. An explicit demo research override exists, but it does not establish profitability. Exness real-money automation requires its own validation gates. See [GOLD_RESEARCH.md](GOLD_RESEARCH.md) for the IC Markets study and limitations.
 
 ## Software to install
 
 - **Windows 10/11 and 64-bit Python 3.11–3.14.** Python 3.15 does not currently have a compatible MetaTrader5 package. Install Python from [python.org](https://www.python.org/downloads/windows/) with the Python launcher (`py`) enabled. Git is needed only if you are cloning the repository.
-- **IC Markets MetaTrader 5 desktop terminal and an IC Markets demo account** for the active gold dashboard. Install MT5 from IC Markets, sign in locally, and keep the terminal open. The Python connector does not accept a live account. You can run unit tests and the legacy synthetic-data demo without MT5.
+- **The MT5 desktop terminal for each broker you use.** Sign in locally and keep the selected terminal open. Set `IC_MARKETS_MT5_PATH` and `EXNESS_MT5_PATH` in `.env` to their respective `terminal64.exe` files when both are installed. IC Markets is demo only; Exness may be demo or real. You can run unit tests without MT5.
 - **One news provider** for gold decisions: [Ollama](https://ollama.com/download/windows) on the same computer, or an OpenAI API key. Ollama avoids a cloud key but requires the configured model to be installed. A missing news provider blocks news-gated entries.
 
 ## Install and run on Windows
@@ -23,9 +23,9 @@ You can also double-click `install.cmd` and `run.cmd`. The `.cmd` launchers hand
 
 The installer selects an installed 64-bit Python 3.11–3.14, creates `.venv` in the project root, installs dependencies, registers the source package in that environment, and copies `.env.example` to root `.env` only when `.env` is absent. An incompatible environment is moved to an ignored folder under `lib`. The upgrade waits for any open MT5 positions to close before migrating an active worker. If no compatible Python is installed, the script explains what to install. It preserves existing credentials and local research records.
 
-Edit `.env` for your news provider. For local Ollama, set `IC_MARKETS_NEWS_PROVIDER=ollama` and install `qwen2.5:7b-instruct` with `ollama pull qwen2.5:7b-instruct`; `run.cmd` starts the installed Ollama service if needed. For cloud news, set `IC_MARKETS_NEWS_PROVIDER=openai` and provide your own `OPENAI_API_KEY`. Existing `XM_`-prefixed news settings remain supported as backward-compatible aliases. Do not commit `.env` or paste credentials into issues or logs.
+Edit `.env` for your news provider. IC Markets uses `IC_MARKETS_NEWS_PROVIDER`; Exness uses `EXNESS_NEWS_PROVIDER` and can fall back to the IC Markets settings. For local Ollama, install `qwen2.5:7b-instruct` with `ollama pull qwen2.5:7b-instruct`. For cloud news, use `openai` and provide your own `OPENAI_API_KEY`. Do not commit `.env` or paste credentials into issues or logs.
 
-In the browser, select the timestamp offset shown by the IC Markets MT5 server, connect the IC Markets **demo** terminal, and choose the exact USD gold instrument. Run a fresh historical evaluation using IC Markets data before interpreting signals: previous XM evaluations do not authorize entries on the new broker, and spreads, contract details and costs may differ. Manual demo orders require an explicit review and click. Automatic demo trading has additional risk and validation gates and should remain off until its behavior has been checked in the connected demo account. The dashboard and its worker run locally; keep the app and MT5 open for timed exit management.
+In the browser, select **IC Markets** or **Exness** before connecting. IC Markets requires a demo account and the server timestamp offset. Exness uses UTC timestamps and identifies demo or real accounts. Run a fresh historical evaluation for the selected broker; reports from one broker do not authorize the other. Broker records and worker locks are separate: IC Markets under `lib/`, Exness under `lib/exness/`. Keep MT5 open while its worker manages exits.
 
 ## Tests and optional legacy workflow
 
@@ -46,7 +46,7 @@ For historical Alpaca stock data, fill `ALPACA_API_KEY` and `ALPACA_API_SECRET` 
 
 ## Repository and local files
 
-`src/main/code/dashboard.py` is the active Streamlit entry point. In `src/main/code/scalp_lab/`, `gold.py` evaluates chart rules, `mt5_demo.py` handles broker checks, `auto_demo.py` owns automation and order execution, `auto_demo_ui.py` renders its controls, and `gold_worker.py` runs the scanner and exit watchdog. The older Alpaca workflow remains in the other modules and `src/main/code/dashboard_legacy.py`. `src/test/code/tests/` holds `unittest` cases. `GOLD_RESEARCH.md` documents the gold study. Root `.venv` and `.env` hold the ignored local environment and credentials. `lib/` holds ignored market data, model output, evaluation reports, SQLite journals, worker status, logs, and history. Do not delete order journals or automation settings during an active demo session. A fresh checkout starts without historical evaluation or saved broker state; the dashboard creates new reports when you run an evaluation.
+`src/main/code/dashboard.py` selects `dashboard_ic.py` or `dashboard_exness.py`. IC Markets lives in `src/main/code/scalp_lab/`; Exness broker-specific modules live in `src/main/code/scalp_lab_exness/` and share unchanged research modules from `scalp_lab/`. Each package uses separate paths and background workers. `src/test/code/tests/` holds `unittest` cases. Root `.venv` and `.env` hold the ignored local environment and credentials. `lib/` holds ignored records and worker locks. A fresh checkout starts without historical evaluation or saved broker state.
 
 ## Shared dashboard and background news
 

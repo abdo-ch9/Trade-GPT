@@ -13,7 +13,7 @@ $install = Join-Path $projectRoot 'install.ps1'
 $needsInstall = -not (Test-Path -LiteralPath $python)
 
 if (-not $needsInstall) {
-    & $python -c 'import MetaTrader5, streamlit, scalp_lab' 2>$null
+    & $python -c 'import MetaTrader5, streamlit, scalp_lab, scalp_lab_exness' 2>$null
     $needsInstall = $LASTEXITCODE -ne 0
 }
 if ($needsInstall) {
@@ -28,8 +28,8 @@ if (-not (Test-Path -LiteralPath $envFile)) {
     Write-Host 'Created .env from .env.example. Configure your news provider before trading.'
 }
 if (Test-Path -LiteralPath $envFile) {
-    $providerLine = Get-Content -LiteralPath $envFile | Where-Object { $_ -match '^\s*IC_MARKETS_NEWS_PROVIDER\s*=' } | Select-Object -Last 1
-    if ($providerLine -and (($providerLine -split '=', 2)[1].Trim() -eq 'ollama')) {
+    $providerLines = Get-Content -LiteralPath $envFile | Where-Object { $_ -match '^\s*(IC_MARKETS|EXNESS)_NEWS_PROVIDER\s*=' }
+    if ($providerLines | Where-Object { ($_ -split '=', 2)[1].Trim() -eq 'ollama' }) {
         $ollamaReady = $false
         try {
             $null = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/tags' -TimeoutSec 2
@@ -57,7 +57,7 @@ if (Test-Path -LiteralPath $envFile) {
 }
 
 if (-not (Get-Process terminal64 -ErrorAction SilentlyContinue)) {
-    Write-Warning 'No MT5 terminal is open. Sign in to your IC Markets demo account before connecting in the dashboard.'
+    Write-Warning 'No MT5 terminal is open. Sign in to the selected broker account before connecting in the dashboard.'
 }
 
 if ($Check) {
