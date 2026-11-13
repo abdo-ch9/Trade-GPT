@@ -8,7 +8,7 @@ from .pages import automation, backtesting, dashboard, history, intelligence, ri
 
 def main():
     st.set_page_config(page_title="Gold terminal", page_icon=":material/candlestick_chart:", layout="wide",
-                       initial_sidebar_state="expanded")
+                       initial_sidebar_state="auto")
     styles.apply()
     with st.sidebar:
         st.markdown('<div class="terminal-eyebrow">Gold terminal / MT5</div>', unsafe_allow_html=True)

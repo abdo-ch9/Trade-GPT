@@ -48,7 +48,8 @@ gold_migration_settings.json
 *.db-*
 xm_auto_demo*.json
 gold_worker_status.json
-.streamlit/
+.streamlit/*
+!.streamlit/config.toml
 *.log
 
 gold_dashboard_snapshot.json

@@ -50,6 +50,8 @@ The sidebar provides **Dashboard** (account and health), **Trading terminal** (c
 
 `src/main/code/frontend/app.py` registers native Streamlit pages. `frontend/context.py` keeps the selected broker and account identity in session state. `frontend/services.py` calls the existing broker modules for read-only snapshots, reports, and history; its research snapshot cache expires after ten seconds and daily deal P&L after fifteen seconds. Historical evaluation runs on a background thread. `frontend/components.py` and `frontend/styles.py` define reusable display elements and the dark theme. Each `frontend/pages/` module owns one workspace. Manual orders continue through the existing broker UI helpers and backend risk checks. Page rendering and navigation never submit an order. See [FRONTEND_AUDIT.md](FRONTEND_AUDIT.md) for the former-to-current feature map.
 
+`.streamlit/config.toml` sets the supported minimal toolbar and dark theme so the local app does not show Deploy or developer menu controls. `frontend/styles.py` contains the remaining terminal-specific CSS. It keeps the native sidebar toggle available while the broker status bar clears the transparent header on desktop and mobile. Start Streamlit from the repository root so this config is loaded; `run.cmd` already does this.
+
 To add a page, create a `render()` function in `frontend/pages/`, register it with a unique `url_path` in `frontend/app.py`, and use `page_state()` plus read-only adapters from `frontend/services.py`. Keep account validation, order submission, and risk policy in the broker packages. Put any new local runtime files under ignored `lib/` and secrets only in root `.env`.
 
 ## Repository and local files
