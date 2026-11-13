@@ -602,9 +602,19 @@ class AutoDemoTests(unittest.TestCase):
 
 
 
+    def test_selected_lot_size_reaches_preview_and_execution_journal(self):
+        self.config['lots']=.02
+        self.assertEqual(self.execute()['state'],'filled')
+        self.assertEqual(self.preview.call_args.args[3],.02)
+        import sqlite3, json
+        from contextlib import closing
+        with closing(sqlite3.connect(self.db)) as db:
+            detail=json.loads(db.execute('SELECT detail FROM entries').fetchone()[0])
+        self.assertEqual(detail['execution_context']['volume'],.02)
+
     def test_disallowed_size_symbol_and_stop_before_send(self):
 
-        self.config['lots']=.02
+        self.config['lots']=.015
 
         with self.assertRaises(DemoError):self.execute()
 

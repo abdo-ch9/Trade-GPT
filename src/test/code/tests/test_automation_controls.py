@@ -1,5 +1,6 @@
 import unittest
-from contextlib import ExitStack
+from contextlib import ExitStack, nullcontext
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from scalp_lab import auto_demo as ic, auto_demo_ui
@@ -7,6 +8,52 @@ from scalp_lab_exness import auto_demo as exness, gold as exness_gold
 
 
 class AutomationControlTests(unittest.TestCase):
+    def test_trade_size_can_only_be_saved_while_stopped_and_on_broker_step(self):
+        instrument = SimpleNamespace(name='XAUUSD', volume_min=.01,
+                                     volume_max=1.0, volume_step=.01)
+        for engine in (ic, exness):
+            with self.subTest(broker=engine.__package__), ExitStack() as stack:
+                config = {'enabled': False, 'symbols': ['XAUUSD'], 'lots': .01}
+                stack.enter_context(patch.object(engine, 'settings', return_value=config))
+                stack.enter_context(patch.object(engine, 'process_guard', return_value=nullcontext()))
+                stack.enter_context(patch.object(engine.bridge, 'api',
+                                                 return_value=SimpleNamespace(symbols_get=lambda: [instrument])))
+                stack.enter_context(patch.object(engine, 'eligible_symbol', return_value=True))
+                stack.enter_context(patch.object(engine, 'STATUS', {}))
+                saved = stack.enter_context(patch.object(engine, 'save'))
+                stack.enter_context(patch.object(engine, 'save_status'))
+                self.assertEqual(engine.set_lots(.02)['lots'], .02)
+                self.assertFalse(saved.call_args.args[0]['enabled'])
+                with self.assertRaises(engine.bridge.DemoError):
+                    engine.set_lots(.015)
+                config['enabled'] = True
+                with self.assertRaises(engine.bridge.DemoError):
+                    engine.set_lots(.03)
+                self.assertEqual(saved.call_count, 1)
+
+    def test_entry_limits_save_without_starting_and_reject_invalid_values(self):
+        for engine in (ic, exness):
+            with self.subTest(broker=engine.__package__), ExitStack() as stack:
+                config = {'enabled': False, 'daily_loss_fraction': .01,
+                          'daily_loss_usd': 30, 'max_entries': 5}
+                stack.enter_context(patch.object(engine, 'settings', return_value=config))
+                stack.enter_context(patch.object(engine, 'process_guard', return_value=nullcontext()))
+                stack.enter_context(patch.object(engine, 'STATUS', {}))
+                saved = stack.enter_context(patch.object(engine, 'save'))
+                stack.enter_context(patch.object(engine, 'save_status'))
+                result = engine.set_entry_limits(2.0, 7)
+                self.assertEqual(result['daily_loss_fraction'], .02)
+                self.assertEqual(result['max_entries'], 7)
+                self.assertIsNone(result['daily_loss_usd'])
+                self.assertFalse(result['enabled'])
+                for percentage, attempts in ((0, 7), (6, 7), (2, 0), (2, 21)):
+                    with self.assertRaises(engine.bridge.DemoError):
+                        engine.set_entry_limits(percentage, attempts)
+                config['enabled'] = True
+                with self.assertRaises(engine.bridge.DemoError):
+                    engine.set_entry_limits(2, 7)
+                self.assertEqual(saved.call_count, 1)
+
     def test_click_start_checks_news_and_validation_before_arming(self):
         for engine, ui, mode in ((ic, auto_demo_ui, None), (exness, exness, 'real')):
             with self.subTest(broker=engine.__package__), ExitStack() as stack:

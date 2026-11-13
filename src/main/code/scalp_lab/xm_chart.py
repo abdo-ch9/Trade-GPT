@@ -167,11 +167,13 @@ def snapshot(identity, symbol, offset, horizon=5, include_headlines=False):
 
 
 def add_scenario_risk(result, mt5, symbol, account):
-    """Read-only broker valuation for the approved 0.01-lot scenarios."""
+    """Read-only broker valuation for the selected trade size."""
+    from .auto_demo import settings
+    lots = settings().get('lots', .01)
     for side, scenario in result['scenarios'].items():
-        scenario.update(lots=.01,currency=account.currency,risk_amount=None,risk_pct=None)
+        scenario.update(lots=lots,currency=account.currency,risk_amount=None,risk_pct=None)
         order_type = mt5.ORDER_TYPE_BUY if side=='BUY' else mt5.ORDER_TYPE_SELL
-        loss = mt5.order_calc_profit(order_type,symbol,.01,scenario['entry'],scenario['sl'])
+        loss = mt5.order_calc_profit(order_type,symbol,lots,scenario['entry'],scenario['sl'])
         if loss is not None and math.isfinite(loss) and loss < 0:
             scenario['risk_amount'] = abs(loss)
             if math.isfinite(account.equity) and account.equity > 0:
@@ -235,7 +237,7 @@ def render(identity, symbol, offset):
                     'lots':'Position (lots)','entry':'Indicative entry','sl':'Stop loss',
                     'tp':'Take profit','risk_amount':'Estimated loss at stop',
                     'risk_pct':'Risk (% equity)','currency':'Account currency'}),width='stretch')
-            st.caption('Risk is the broker-estimated entry-to-stop loss for 0.01 lot divided by current equity. Excludes fees and slippage; blank means unavailable. These are proposed levels, not an open position or confirmed fill.')
+            st.caption('Risk is the broker-estimated entry-to-stop loss for the selected lot size divided by current equity. Excludes fees and slippage; blank means unavailable. These are proposed levels, not an open position or confirmed fill.')
             st.caption('Stop follows M5 volatility, price structure and broker minimum distance. Target is twice the stop distance. A scenario is not permission to submit when the order decision is blocked.')
         news = result['news']
         if news.get('provider'):

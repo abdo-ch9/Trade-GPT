@@ -2,20 +2,45 @@
 import streamlit as st
 
 from . import styles, components
-from .context import BROKERS, clear_broker_state, connection, selected, selected_instrument
+from .context import BROKERS, broker_for, clear_broker_state, connection, selected, selected_instrument
 from .pages import automation, backtesting, dashboard, forecast, history, intelligence, risk, settings, trading
+
+
+def _on_context_change():
+    """Reject mode changes before Streamlit creates widgets for the next run."""
+    previous_name = st.session_state.get("active_broker")
+    previous_environment = st.session_state.get("active_environment", "DEMO")
+    name = st.session_state.get("selected_broker", "IC Markets")
+    environment = st.session_state.get("trading_environment", "DEMO")
+    if previous_name and (previous_name, previous_environment) != (name, environment):
+        previous = broker_for(previous_name, "real" if previous_environment == "LIVE" else "demo")
+        if previous.auto.settings().get("enabled"):
+            st.session_state.selected_broker = previous_name
+            st.session_state.trading_environment = previous_environment
+            st.session_state.selection_blocked = True
+            return
+    if (previous_name, previous_environment) != (name, environment):
+        clear_broker_state()
+        st.session_state.active_broker = name
+        st.session_state.active_environment = environment
 
 
 def main():
     st.set_page_config(page_title="Gold terminal", page_icon=":material/candlestick_chart:", layout="wide",
                        initial_sidebar_state="auto")
     styles.apply()
+    st.session_state.setdefault("trading_environment", "DEMO")
     with st.sidebar:
         st.markdown('<div class="terminal-eyebrow">Gold terminal / MT5</div>', unsafe_allow_html=True)
-        broker_name = st.selectbox("Broker", tuple(BROKERS), key="selected_broker")
-        if st.session_state.get("active_broker") != broker_name:
-            clear_broker_state()
-            st.session_state.active_broker = broker_name
+        broker_name = st.selectbox("Broker", tuple(BROKERS), key="selected_broker",
+                                   on_change=_on_context_change)
+        environment = st.segmented_control("Trading environment", ("DEMO", "LIVE"),
+                                           key="trading_environment",
+                                           on_change=_on_context_change) or "DEMO"
+        if "active_broker" not in st.session_state:
+            _on_context_change()
+        if st.session_state.pop("selection_blocked", False):
+            st.warning("Stop automatic entries in Automation center before changing broker or environment.")
         broker = selected()
         if not broker.is_exness:
             st.selectbox("MT5 server time", (2, 3, 0),
@@ -38,13 +63,16 @@ def main():
                 st.warning("No supported USD gold instrument on this account.")
         else:
             st.caption(error or "Disconnected")
+        if environment == "LIVE":
+            st.error("LIVE · REAL MONEY. Connecting does not start automatic trading.")
         st.divider()
         st.caption("Local terminal · broker orders require explicit controls")
 
     worker = broker.module("gold_worker").status()
-    components.status_bar(broker, account, broker.mode(account) if account else "—", worker)
-    if account and broker.mode(account) == "real":
-        st.warning("Exness real account connected. Trading controls can use real funds.")
+    components.status_bar(broker, account, broker.environment, worker)
+    if environment == "LIVE":
+        st.error(f"LIVE · REAL MONEY · {broker.name}" +
+                 (f" · account {account.login} · {account.server}" if account else " · disconnected"))
 
     pages = {
         "Workspace": [

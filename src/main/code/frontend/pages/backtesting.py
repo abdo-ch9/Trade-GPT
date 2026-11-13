@@ -36,9 +36,9 @@ def render():
         st.session_state.pop(key, None)
     if st.button("Fetch gold history and evaluate", disabled=future is not None and not future.done(),
                  key="evaluate_gold_history"):
-        st.session_state[context_key] = (broker.name, tuple(identity), symbol)
+        st.session_state[context_key] = (broker.name, broker.environment, tuple(identity), symbol)
         st.session_state[key] = _EXECUTOR.submit(
-            services.evaluate_history, broker.name, tuple(identity), symbol,
+            services.evaluate_history, broker.name, broker.environment, tuple(identity), symbol,
             instrument.point, offset)
         st.rerun()
 

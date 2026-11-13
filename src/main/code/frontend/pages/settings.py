@@ -41,9 +41,13 @@ def render():
 
     components.section("Risk configuration · read only")
     automation_config = broker.auto.settings()
+    budget_rule = (f"{automation_config['daily_loss_eur']:.2f} EUR fixed" if automation_config.get("daily_loss_eur") is not None
+                   else f"{automation_config['daily_loss_usd']:.2f} USD fixed" if automation_config.get("daily_loss_usd") is not None
+                   else f"{automation_config.get('daily_loss_fraction', .01) * 100:g}% of baseline equity")
     st.dataframe([{"Setting": "Automatic entries", "Value": "Enabled" if automation_config.get("enabled") else "Stopped"},
-                  {"Setting": "Daily risk fraction", "Value": automation_config.get("daily_risk_fraction", "Backend default")},
-                  {"Setting": "Maximum entry attempts", "Value": "5"},
+                  {"Setting": "Trade size", "Value": f"{automation_config.get('lots', .01):g} lot"},
+                  {"Setting": "Daily loss limit", "Value": budget_rule},
+                  {"Setting": "Maximum entry attempts", "Value": automation_config.get("max_entries", 5)},
                   {"Setting": "Execution validation", "Value": "Enforced by broker backend"}],
                  hide_index=True, width="stretch")
 
@@ -57,4 +61,4 @@ def render():
         {"Check": "Exit watchdog", "Status": worker.get("exit_error") or "No current error"},
         {"Check": "Automation", "Status": "Enabled" if broker.auto.settings().get("enabled") else "Stopped"},
     ], hide_index=True, width="stretch")
-    st.caption("Risk limits and order permissions are enforced in the broker modules. This page does not change them.")
+    st.caption("Edit fixed trade settings in Automation center. Broker modules enforce limits and order permissions.")

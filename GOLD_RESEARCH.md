@@ -16,7 +16,7 @@ automation was stopped. No existing MT5 order or position was changed.
 - Ollama interprets sourced gold/macro headlines; news remains required for entries.
 - Chronological 60/40 split; four holdout time blocks; daily block bootstrap;
   cost stress test; CSV research trade log and JSON evaluation report.
-- Existing demo-only broker checks, daily risk budget, five entry attempts,
+- Account-mode broker checks, daily risk budget, five entry attempts,
   duplicate-candle journal and ambiguous-order protection retained for gold.
 
 ## What the backtest means
@@ -70,8 +70,8 @@ reserve a new unseen period. Bootstrap uncertainty is not a profit guarantee.
   errors and exits. These are local notifications, not email or phone notifications.
 - Entry requests, estimated risk, spread, fill slippage, latency and available realized
   deal commissions/fees are recorded for future execution-cost calibration.
-- All retained user preferences remain explicit: 0.01 lot, demo only, advisory
-  historical validation, Tesla stop-risk exclusion, and the shared daily loss limit.
+- All retained user preferences remain explicit: 0.01 lot, DEMO by default, advisory
+  historical validation, Tesla stop-risk exclusion, and separate DEMO/LIVE daily limits.
 
 The implementation review passed 60 focused tests and a read-only dashboard test
 with order submission disabled. The saved diagnostic rerun is

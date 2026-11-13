@@ -27,7 +27,8 @@ def render():
     worker_module.ensure_running()
     worker = worker_module.status()
     mode = broker.mode(account)
-    symbols = auto.eligible(instruments)
+    lots = config.get("lots", .01)
+    symbols = auto.eligible(instruments, lots)
     context_matches = (tuple(config.get("identity", ())) == tuple(identity)
                        and config.get("symbols") == symbols and config.get("offset") == offset)
     components.metrics([
@@ -56,6 +57,46 @@ def render():
                 st.rerun()
             except broker.bridge.DemoError as exc:
                 st.error(str(exc))
+    components.section("Trade settings")
+    editable = context_matches and not config.get("enabled")
+    selected_lots = st.number_input(
+        "Trade size (lots)", min_value=float(instrument.volume_min),
+        max_value=float(instrument.volume_max),
+        value=float(lots if auto.valid_lots(lots, instrument) else instrument.volume_min),
+        step=float(instrument.volume_step), format="%.4f", disabled=not editable,
+        key=f"automation_lots_{broker.name}_{lots}")
+    if st.button("Save trade size", disabled=not editable or selected_lots == lots,
+                 key="save_trade_size"):
+        try:
+            auto.set_lots(selected_lots)
+            services.invalidate_analysis()
+            st.rerun()
+        except broker.bridge.DemoError as exc:
+            st.error(str(exc))
+    daily_percent = st.number_input(
+        "Daily loss limit (% of starting equity)", min_value=.1, max_value=5.0,
+        value=float(config.get("daily_loss_fraction", .01) * 100), step=.1,
+        format="%.1f", disabled=not editable,
+        key=f"automation_daily_limit_{broker.name}_{config.get('daily_loss_fraction', .01)}")
+    attempts = st.number_input(
+        "Entry attempts per UTC day", min_value=1, max_value=20,
+        value=int(config.get("max_entries", 5)), step=1, disabled=not editable,
+        key=f"automation_attempts_{broker.name}_{config.get('max_entries', 5)}")
+    limits_changed = (abs(daily_percent - config.get("daily_loss_fraction", .01) * 100) > 1e-9
+                      or attempts != config.get("max_entries", 5)
+                      or config.get("daily_loss_usd") is not None
+                      or config.get("daily_loss_eur") is not None)
+    if st.button("Save entry limits", disabled=not editable or not limits_changed,
+                 key="save_entry_limits"):
+        try:
+            auto.set_entry_limits(daily_percent, int(attempts))
+            services.invalidate_analysis()
+            st.rerun()
+        except broker.bridge.DemoError as exc:
+            st.error(str(exc))
+    st.caption("Bind the account first; stop entries to edit. Saving settings never starts trading.")
+    if config.get("daily_loss_usd") is not None or config.get("daily_loss_eur") is not None:
+        st.caption("A fixed-currency budget is active. Saving the percentage switches to the percentage budget.")
     from_news = broker.module("xm_news")
     news_ready, news_reason = from_news.connection_status()
     (st.success if news_ready else st.warning)("News service: " + news_reason)
@@ -66,7 +107,7 @@ def render():
         validated, validation_reason = broker.gold.execution_validation(instrument.name, config)
     (st.success if validated else st.warning)("Strategy gate: " + validation_reason)
     if len(symbols) != 1:
-        st.warning("Exactly one eligible 0.01-lot gold instrument is required.")
+        st.warning(f"Exactly one eligible {lots:g}-lot gold instrument is required.")
 
     if not broker.is_exness and mode == "demo" and not config.get("enabled"):
         if config.get("allow_unvalidated_demo") is True:
@@ -95,15 +136,21 @@ def render():
     confirmation = st.checkbox(
         f"I understand Start can submit {mode.upper()} market orders on {broker.name} after all backend checks pass.",
         key="confirm_auto_start")
+    live_account_confirmed = True
     if mode == "real":
-        st.error("REAL account: automatic orders use real funds. Review the strategy gate before starting.")
+        st.error(f"LIVE · REAL MONEY · {broker.name} account {account.login}. Automatic orders use real funds.")
+        typed_account = st.text_input(
+            f"Type account number {account.login} to authorize this LIVE automation session",
+            key="confirm_live_account", autocomplete="off")
+        live_account_confirmed = typed_account.strip() == str(account.login)
     start_disabled = (config.get("enabled") or not context_matches or not news_ready
-                      or not validated or len(symbols) != 1 or not confirmation)
+                      or not validated or len(symbols) != 1 or not confirmation
+                      or not live_account_confirmed)
     start_col, stop_col = st.columns(2)
     if start_col.button(f"Start automatic {mode.upper()} trading", disabled=start_disabled,
                         type="primary", use_container_width=True):
         try:
-            auto.arm(identity, symbols, offset)
+            auto.arm(identity, symbols, offset, confirm_live=mode == "real")
             st.rerun()
         except broker.bridge.DemoError as exc:
             st.error(str(exc))
@@ -116,10 +163,11 @@ def render():
             "I understand this REAL session can trade despite the failed historical holdout.",
             key="confirm_real_holdout_override")
         if st.button("Start REAL trading despite failed holdout",
-                     disabled=not (confirmation and override_confirmed),
+                     disabled=not (confirmation and override_confirmed and live_account_confirmed),
                      key="start_real_holdout_override"):
             try:
-                auto.arm(identity, symbols, offset, override_live_validation=True)
+                auto.arm(identity, symbols, offset, override_live_validation=True,
+                         confirm_live=True)
                 st.rerun()
             except broker.bridge.DemoError as exc:
                 st.error(str(exc))

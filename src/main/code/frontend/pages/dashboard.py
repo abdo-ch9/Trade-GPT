@@ -31,7 +31,7 @@ def render():
         positions, orders = [], []
         st.warning("Exposure unavailable: " + str(exc))
     try:
-        daily_pnl = services.daily_trading_pnl(broker.name, tuple(identity))
+        daily_pnl = services.daily_trading_pnl(broker.name, tuple(identity), broker.environment)
     except broker.bridge.DemoError as exc:
         daily_pnl = None
         st.warning("Today's realized trading P&L unavailable: " + str(exc))

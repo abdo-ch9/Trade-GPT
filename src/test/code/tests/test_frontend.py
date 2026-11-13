@@ -3,7 +3,7 @@ import sys
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
 
@@ -11,10 +11,50 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "main" / "code"))
 
 from frontend import services
 from frontend.pages.automation import _can_override_holdout
+from frontend.pages import automation
 from frontend.pages.trading import _display_bars
 
 
 class FrontendDisplayTests(unittest.TestCase):
+    def test_active_automation_page_saves_selected_trade_size(self):
+        identity = (123, "Demo")
+        instrument = SimpleNamespace(name="XAUUSD", volume_min=.01,
+                                     volume_max=1.0, volume_step=.01)
+        config = {"enabled": False, "identity": list(identity),
+                  "symbols": ["XAUUSD"], "offset": 2, "lots": .01}
+        auto = SimpleNamespace(settings=lambda: config,
+                               eligible=lambda *_: ["XAUUSD"],
+                               valid_lots=lambda *_: True,
+                               set_lots=MagicMock())
+        worker = SimpleNamespace(ensure_running=lambda: None,
+                                 status=lambda: {}, healthy=lambda *_: False)
+        news = SimpleNamespace(connection_status=lambda: (True, "Ready"))
+        telegram = SimpleNamespace(configuration=lambda: {})
+        modules = {"gold_worker": worker, "xm_news": news,
+                   "telegram_notifications": telegram}
+        broker = SimpleNamespace(name="IC Markets", is_exness=False, auto=auto,
+                                 mode=lambda *_: "demo", module=modules.__getitem__,
+                                 bridge=SimpleNamespace(DemoError=RuntimeError),
+                                 gold=SimpleNamespace(execution_validation=lambda *_: (True, "Ready")))
+        state = (broker, identity, SimpleNamespace(currency="USD"),
+                 [instrument], instrument, 2)
+        st = MagicMock()
+        st.number_input.side_effect = [.02, 1.0, 5]
+        st.button.side_effect = lambda label, **_: label == "Save trade size"
+        st.checkbox.return_value = False
+        start, stop = MagicMock(), MagicMock()
+        start.button.return_value = stop.button.return_value = False
+        st.columns.return_value = (start, stop)
+        with patch.object(automation, "page_state", return_value=state), \
+             patch.object(automation, "st", st), \
+             patch.object(automation, "components"), \
+             patch.object(automation.services, "events", return_value=[]), \
+             patch.object(automation.services, "invalidate_analysis") as invalidate:
+            automation.render()
+        auto.set_lots.assert_called_once_with(.02)
+        invalidate.assert_called_once()
+        st.rerun.assert_called_once()
+
     def test_live_holdout_override_requires_exact_failure_and_ready_session(self):
         broker = SimpleNamespace(is_exness=True,
                                  gold=SimpleNamespace(HOLDOUT_FAILURE="Holdout failed"))

@@ -28,7 +28,8 @@ blackout, COMEX order book or consolidated exchange volume, or calibrated win
 probability. Exness tick volume is not COMEX futures volume. Current headlines
 cannot be attached retroactively to historical trades.
 
-Exness records, evaluation files, order journals, and worker status live in the
-ignored `lib/exness/` folder. IC Markets has separate records and validation.
-The Exness code is in `src/main/code/scalp_lab_exness/` and its dashboard is
-`src/main/code/dashboard_exness.py`.
+Exness DEMO records, evaluation files, order journals, and worker status live in the
+ignored `lib/exness/` folder. Exness LIVE has its own `lib/live/exness/` records.
+IC Markets has separate DEMO and LIVE records and validation.
+The Exness code is in `src/main/code/scalp_lab_exness/`, shared by the isolated
+`scalp_lab_exness_live/` runtime. The active dashboard is `src/main/code/dashboard.py`.

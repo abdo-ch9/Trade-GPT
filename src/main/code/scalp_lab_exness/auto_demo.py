@@ -1,4 +1,4 @@
-"""Bounded Exness demo automation, evaluated by dashboard refreshes; no live accounts."""
+"""Bounded Exness automation with isolated demo and live runtimes."""
 from .paths import LIB_DIR
 import json
 
@@ -13,6 +13,7 @@ import time
 import traceback
 
 import uuid
+from decimal import Decimal, InvalidOperation
 
 from contextlib import closing, contextmanager
 
@@ -158,13 +159,63 @@ def stop(reason='Stopped by user'):
 
 
 
-def eligible(instruments):
+def valid_lots(lots, instrument):
+    """Require a broker-supported lot increment; never round an order."""
+    try:
+        volume = Decimal(str(lots))
+        step = Decimal(str(instrument.volume_step))
+        return (volume.is_finite() and step.is_finite() and step > 0
+                and Decimal(str(instrument.volume_min)) <= volume <= Decimal(str(instrument.volume_max))
+                and volume / step == (volume / step).to_integral_value())
+    except (AttributeError, InvalidOperation, TypeError, ValueError, ZeroDivisionError):
+        return False
 
-    return [s.name for s in instruments if eligible_symbol(s)
 
-            and s.volume_min<=.01<=s.volume_max and s.volume_step>0
+def eligible(instruments, lots=.01):
+    return [s.name for s in instruments if eligible_symbol(s) and valid_lots(lots, s)]
 
-            and abs(.01/s.volume_step-round(.01/s.volume_step))<1e-8]
+
+def set_lots(lots):
+    """Save a stopped session's volume; starting remains a separate action."""
+    with process_guard(), bridge.LOCK:
+        config = settings()
+        if config.get('enabled'):
+            raise bridge.DemoError('Stop automation before changing trade size.')
+        if not isinstance(lots, (int, float)) or isinstance(lots, bool) or not math.isfinite(lots):
+            raise bridge.DemoError('Choose a finite trade size in lots.')
+        instruments = bridge.api().symbols_get() or []
+        selected = config.get('symbols') or []
+        if len(selected) != 1 or selected[0] not in eligible(instruments, lots):
+            raise bridge.DemoError('Trade size must match the selected gold instrument’s broker minimum, maximum and step.')
+        config = {**config, 'lots': float(lots), 'enabled': False,
+                  'run_id': uuid.uuid4().hex,
+                  'stop_reason': 'Trade size updated. Press Start to enable entries.'}
+        save(config)
+        STATUS.clear()
+        save_status()
+        return config
+
+
+def set_entry_limits(daily_loss_percent, max_entries):
+    """Update fixed risk rules while entries are stopped."""
+    with process_guard(), bridge.LOCK:
+        config = settings()
+        if config.get('enabled'):
+            raise bridge.DemoError('Stop automation before changing entry limits.')
+        if (isinstance(daily_loss_percent, bool) or not isinstance(daily_loss_percent, (int, float))
+                or not math.isfinite(daily_loss_percent) or not .1 <= daily_loss_percent <= 5):
+            raise bridge.DemoError('Daily loss limit must be between 0.1% and 5%.')
+        if isinstance(max_entries, bool) or not isinstance(max_entries, int) or not 1 <= max_entries <= 20:
+            raise bridge.DemoError('Entry attempts must be between 1 and 20 per UTC day.')
+        config = {**config, 'daily_loss_fraction': daily_loss_percent / 100,
+                  'daily_loss_usd': None, 'daily_loss_eur': None,
+                  'max_entries': max_entries, 'enabled': False,
+                  'run_id': uuid.uuid4().hex,
+                  'stop_reason': 'Entry limits updated. Press Start to enable entries.'}
+        save(config)
+        STATUS.clear()
+        save_status()
+        return config
 
 
 
@@ -260,7 +311,7 @@ def bind_stopped_session(identity, symbols, offset):
 
         bridge.checked_account(bridge.api(), identity)
 
-        allowed = eligible(bridge.api().symbols_get() or [])
+        allowed = eligible(bridge.api().symbols_get() or [], config.get('lots', .01))
 
         if len(symbols) != 1 or symbols[0] not in allowed:
 
@@ -285,7 +336,10 @@ def bind_stopped_session(identity, symbols, offset):
 
 
 
-def arm(identity, symbols, offset, *, override_live_validation=False):
+def arm(identity, symbols, offset, *, override_live_validation=False, confirm_live=False):
+
+    if __package__.endswith('_live') and confirm_live is not True:
+        raise bridge.DemoError('Confirm the real account explicitly before enabling LIVE automation.')
 
     from .xm_news import connection_status
 
@@ -299,11 +353,12 @@ def arm(identity, symbols, offset, *, override_live_validation=False):
 
         mt5=bridge.api()
         account=bridge.checked_account(mt5,identity)
+        lots=settings().get('lots',.01)
         if not symbols:
 
-            raise bridge.DemoError('No gold instruments support 0.01 lot.')
+            raise bridge.DemoError('No gold instruments support the selected trade size.')
 
-        allowed=eligible(bridge.api().symbols_get() or [])
+        allowed=eligible(bridge.api().symbols_get() or [],lots)
 
         if any(s not in allowed for s in symbols) or len(symbols)!=1:
 
@@ -332,7 +387,8 @@ def arm(identity, symbols, offset, *, override_live_validation=False):
 
                 'daily_loss_eur':settings().get('daily_loss_eur'),
 
-                'lots':.01,'max_entries':5,'daily_loss_fraction':.01,'horizon':HOLD_BARS,
+                'lots':lots,'max_entries':settings().get('max_entries',5),
+                'daily_loss_fraction':settings().get('daily_loss_fraction',.01),'horizon':HOLD_BARS,
 
                 'expires':time.time()+8*3600,'run_id':uuid.uuid4().hex}
 
@@ -499,7 +555,9 @@ def execute(config,symbol,result,db_path=JOURNAL,manual=False):
 
         raise bridge.DemoError('Currency trading is retired. Only gold entries are supported.')
 
-    if config.get('lots')!=.01 or symbol not in config['symbols']:
+    lots=config.get('lots',.01)
+    info=mt5.symbol_info(symbol)
+    if symbol not in config['symbols'] or info is None or not valid_lots(lots,info):
 
         raise bridge.DemoError('Unapproved instrument or size.')
 
@@ -593,7 +651,7 @@ def execute(config,symbol,result,db_path=JOURNAL,manual=False):
 
         if used>=config['max_entries']:
 
-            raise bridge.DemoError('Five automatic entry attempts reached today (UTC).')
+            raise bridge.DemoError(f"{config['max_entries']} entry attempts reached today (UTC).")
 
         drawdown=max(0.0,baseline-account.equity)
 
@@ -608,7 +666,7 @@ def execute(config,symbol,result,db_path=JOURNAL,manual=False):
 
             return {'state':'waiting','message':'This signal candle was already attempted.'}
 
-        ticket=bridge.preview(config['identity'],symbol,side,.01,scenario['tp_bps'],scenario['sl_bps'],utc_offset_hours=config['offset'])
+        ticket=bridge.preview(config['identity'],symbol,side,lots,scenario['tp_bps'],scenario['sl_bps'],utc_offset_hours=config['offset'])
 
         # Reserve 20% above estimated stop loss for fees; gaps can still exceed it.
 
@@ -620,7 +678,8 @@ def execute(config,symbol,result,db_path=JOURNAL,manual=False):
 
         current=settings()
 
-        if bool(current.get('enabled')) != (not manual) or current.get('run_id')!=config['run_id']:
+        if (bool(current.get('enabled')) != (not manual) or current.get('run_id')!=config['run_id']
+                or current.get('lots',.01)!=lots):
 
             raise bridge.DemoError('Automation was stopped or reconfigured.')
 
@@ -673,7 +732,7 @@ def execute(config,symbol,result,db_path=JOURNAL,manual=False):
 
         context={'exit_policy':BROKER_EXIT_POLICY,
 
-                 'symbol':symbol,'type':request.get('type'),'volume':.01,'magic':MAGIC,
+                 'symbol':symbol,'type':request.get('type'),'volume':lots,'magic':MAGIC,
 
                  'offset':config['offset'],'filling':request.get('type_filling'),
 
@@ -722,10 +781,12 @@ def execute(config,symbol,result,db_path=JOURNAL,manual=False):
 
 
 
-def trade_row(identity,symbol,offset,expected_side):
+def trade_row(identity,symbol,offset,expected_side,*,confirm_live=False):
 
     """User-clicked entry using the same journal, risk limits and broker checks."""
 
+    if __package__.endswith('_live') and confirm_live is not True:
+        raise bridge.DemoError('Confirm the real account before submitting a LIVE order.')
     config=settings()
 
     if config.get('enabled'):
@@ -786,8 +847,9 @@ def render_trade_rows(identity,offset,current_status,enabled,*,mode):
 
         st.caption('The next directional setup will be saved here automatically.')
 
-    st.write(f'**Trade a table setup · Exness {mode} · 0.01 lot**')
-    st.caption(f'Each button submits one {mode} market order after refreshing the chart, news and quote. Entry and dynamic levels may change. The same daily budget, five-attempt limit and duplicate-order protection apply.')
+    lots=settings().get('lots',.01)
+    st.write(f'**Trade a table setup · Exness {mode} · {lots:g} lot**')
+    st.caption(f"Each button submits one {mode} market order after refreshing the chart, news and quote. Entry and dynamic levels may change. The same daily budget, {settings().get('max_entries',5)}-attempt limit and duplicate-order protection apply.")
     if enabled:
 
         st.info('Stop automatic trading to enable these manual trade buttons.')
@@ -813,7 +875,7 @@ def render_trade_rows(identity,offset,current_status,enabled,*,mode):
 
         qualifies=row.get('decision') in ('BUY setup','SELL setup') and side in ('BUY','SELL')
 
-        if cols[6].button(f'{side} 0.01 {mode}' if qualifies else 'No setup',
+        if cols[6].button(f'{side} {lots:g} {mode}' if qualifies else 'No setup',
                           key='row_trade_'+symbol,disabled=enabled or not qualifies,
 
                           help=f'Refreshes and rechecks this setup before submitting to your Exness {mode} account.'):
@@ -1026,9 +1088,54 @@ def render(identity,instruments,offset,*,mode='demo'):
 
         st.caption('News service: '+news_connection_reason)
 
-    symbols=eligible(instruments)
-
     config = settings()
+    lots=config.get('lots',.01)
+    symbols=eligible(instruments,lots)
+    selected=next((item for item in instruments if item.name in config.get('symbols',[])
+                   and eligible_symbol(item)),None)
+    if selected is None:
+        selected=next((item for item in instruments if eligible_symbol(item)),None)
+    if selected is not None:
+        st.write('**Trade settings**')
+        chosen=st.number_input('Trade size (lots)',
+                               min_value=float(selected.volume_min),
+                               max_value=float(selected.volume_max),
+                               value=float(lots if valid_lots(lots,selected) else selected.volume_min),
+                               step=float(selected.volume_step),
+                               format='%.4f',disabled=bool(config.get('enabled')),
+                               key=f'exness_automation_lots_{lots}')
+        if st.button('Save trade size',key='save_exness_automation_lots',
+                     disabled=bool(config.get('enabled')) or chosen==lots):
+            try:
+                set_lots(chosen)
+            except bridge.DemoError as exc:
+                st.error(str(exc))
+            else:
+                st.rerun()
+        st.caption('Stop automation to edit. The broker’s volume minimum, maximum and step apply. Saving a size does not start trading.')
+        percent=st.number_input('Daily loss limit (% of starting equity)',
+                                min_value=0.1,max_value=5.0,
+                                value=float(config.get('daily_loss_fraction',.01)*100),
+                                step=0.1,format='%.1f',disabled=bool(config.get('enabled')),
+                                key=f"exness_daily_limit_{config.get('daily_loss_fraction',.01)}")
+        attempts=st.number_input('Entry attempts per UTC day',min_value=1,max_value=20,
+                                 value=int(config.get('max_entries',5)),step=1,
+                                 disabled=bool(config.get('enabled')),
+                                 key=f"exness_entry_attempts_{config.get('max_entries',5)}")
+        limits_changed=(abs(percent-config.get('daily_loss_fraction',.01)*100)>1e-9
+                        or attempts != config.get('max_entries',5)
+                        or config.get('daily_loss_usd') is not None
+                        or config.get('daily_loss_eur') is not None)
+        if st.button('Save entry limits',key='save_exness_entry_limits',
+                     disabled=bool(config.get('enabled')) or not limits_changed):
+            try:
+                set_entry_limits(percent,int(attempts))
+            except bridge.DemoError as exc:
+                st.error(str(exc))
+            else:
+                st.rerun()
+        if config.get('daily_loss_usd') is not None or config.get('daily_loss_eur') is not None:
+            st.caption('A saved fixed-currency budget is active. Saving the percentage switches back to a percentage budget.')
 
     context_changed = (tuple(config.get('identity', [])) != tuple(identity)
 
@@ -1050,7 +1157,7 @@ def render(identity,instruments,offset,*,mode='demo'):
     if not news_connected:
         start_blockers.append(news_connection_reason)
     if len(symbols) != 1:
-        start_blockers.append('Choose exactly one verified gold instrument that supports 0.01 lot.')
+        start_blockers.append(f'Choose exactly one verified gold instrument that supports {lots:g} lot.')
     elif context_changed:
         start_blockers.append(f'Use the connected {mode} account and gold instrument before starting.')
     else:
@@ -1067,13 +1174,20 @@ def render(identity,instruments,offset,*,mode='demo'):
     if mode=='real' and config.get('allow_unvalidated_live') is True and config.get('enabled'):
         st.warning('Historical validation is overridden for the active real-money automation session.')
 
-    budget_label=(f"${settings()['daily_loss_usd']:.2f} daily loss budget" if settings().get('daily_loss_usd') is not None else '1% daily equity budget')
+    budget_label=(f"${settings()['daily_loss_usd']:.2f} daily loss budget" if settings().get('daily_loss_usd') is not None else f"{config.get('daily_loss_fraction',.01)*100:g}% daily equity budget")
 
     if settings().get('daily_loss_eur') is not None:
 
         budget_label = f"€{settings()['daily_loss_eur']:.2f} daily loss budget (converted using fresh EURUSD bid for USD accounts)"
 
-    st.caption(f'{len(symbols)} Exness gold instruments eligible for exactly 0.01 lot. Daily equity loss plus reserved open-stop risk and a 20% cost reserve for the new trade must fit the {budget_label}. Five entry attempts per UTC day. Stops/targets attached to every entry.')
+    st.caption(f"{len(symbols)} Exness gold instruments eligible for {lots:g} lot. Daily equity loss plus reserved open-stop risk and a 20% cost reserve for the new trade must fit the {budget_label}. {config.get('max_entries',5)} entry attempts per UTC day. Stops/targets attached to every entry.")
+    try:
+        account=bridge.checked_account(bridge.api(),identity)
+        budget=daily_budget(config,account.equity,account.currency)
+        st.metric('Estimated daily loss budget',f'{budget:.2f} {account.currency}',
+                  help='Read-only estimate from current equity. The order check uses the recorded UTC-day baseline, current drawdown, open-position stop risk and a 20% reserve.')
+    except bridge.DemoError:
+        st.caption('Calculated daily loss budget is unavailable until the account is connected.')
     st.caption('Background worker runs with the browser closed, for up to eight hours of entries per start. Stop blocks new entries; broker stops and targets remain active. Keep this computer and MT5 running. Broker stops remain in place if the worker is offline; timed exits can be delayed by downtime or unavailable quotes.')
 
     config=settings()
@@ -1242,7 +1356,7 @@ def render(identity,instruments,offset,*,mode='demo'):
 
                                     for name in ('Indicative entry','Take profit','Stop loss')})
 
-        st.caption('Proposed 0.01-lot scenarios, not confirmed fills. Risk is estimated loss at stop / equity × 100, before fees and slippage. Levels can appear for a directional bias even when the decision blocks trading. Older rows populate on their next scan; blanks mean unavailable.')
+        st.caption(f'Proposed {lots:g}-lot scenarios, not confirmed fills. Entry, stop, target and risk are calculated and read-only. Risk is estimated loss at stop / equity × 100, before fees and slippage. Levels can appear for a directional bias even when the decision blocks trading. Older rows populate on their next scan; blanks mean unavailable.')
 
         render_trade_rows(identity,offset,current_status,settings().get('enabled',False),mode=mode)
         errors=[(s,v) for s,v in current_status.items() if v.get('state')=='error' and v.get('traceback')]

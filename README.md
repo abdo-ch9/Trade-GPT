@@ -1,6 +1,6 @@
 # ScalpLab
 
-ScalpLab is a local Python gold research app for IC Markets and Exness. The active interface is the eight-page Streamlit terminal launched by `src/main/code/dashboard.py`. Choose a broker in the sidebar and connect its Windows MetaTrader 5 terminal. IC Markets accepts demo accounts only. Exness accepts demo and real accounts and labels real-money controls explicitly. Each broker retains its own chart, validation, order, and exit rules. `src/main/code/dashboard_legacy.py` and the `python -m scalp_lab` CLI retain the older Alpaca stock research workflow.
+ScalpLab is a local Python gold research app for IC Markets and Exness. The active interface is the Streamlit terminal launched by `src/main/code/dashboard.py`. Choose a broker and DEMO or LIVE in the sidebar, then connect its Windows MetaTrader 5 terminal. DEMO is the default. Both brokers use the signed-in MT5 account for broker quotes, orders, positions, and deal history. LIVE requires a real account; DEMO requires a demo account. Each broker retains its own chart, validation, order, and exit rules. `src/main/code/dashboard_legacy.py` and the `python -m scalp_lab` CLI retain the older Alpaca stock research workflow.
 
 The initial gold strategy failed its historical cost test, so normal validation blocks automatic entries. On IC Markets demo, the Automation center offers a separate acknowledgement to allow unvalidated demo research; Start stays disabled until you grant that consent and the news, account, and instrument gates pass. The consent can be revoked while automation is stopped. This does not establish profitability. Exness real-money automation requires its own validation gates. See [GOLD_RESEARCH.md](GOLD_RESEARCH.md) for IC Markets and [GOLD_RESEARCH_EXNESS.md](GOLD_RESEARCH_EXNESS.md) for Exness.
 
@@ -9,7 +9,7 @@ The merged Exness backend also permits an explicit real-account override for the
 ## Software to install
 
 - **Windows 10/11 and 64-bit Python 3.11–3.14.** Python 3.15 does not currently have a compatible MetaTrader5 package. Install Python from [python.org](https://www.python.org/downloads/windows/) with the Python launcher (`py`) enabled. Git is needed only if you are cloning the repository.
-- **The MT5 desktop terminal for each broker you use.** Sign in locally and keep the selected terminal open. Set `IC_MARKETS_MT5_PATH` and `EXNESS_MT5_PATH` in `.env` to their respective `terminal64.exe` files when both are installed. IC Markets is demo only; Exness may be demo or real. You can run unit tests without MT5.
+- **The MT5 desktop terminal for each broker you use.** Sign in locally and keep the selected terminal open. Set `IC_MARKETS_MT5_PATH` and `EXNESS_MT5_PATH` in `.env` to their respective `terminal64.exe` files when both are installed. The selected DEMO/LIVE environment must match the signed-in account. You can run unit tests without MT5.
 - **One news provider** for gold decisions: [Ollama](https://ollama.com/download/windows) on the same computer, or an OpenAI API key. Ollama avoids a cloud key but requires the configured model to be installed. A missing news provider blocks news-gated entries.
 
 ## Install and run on Windows
@@ -27,7 +27,21 @@ The installer selects an installed 64-bit Python 3.11–3.14, creates `.venv` in
 
 Edit `.env` for your news provider. IC Markets uses `IC_MARKETS_NEWS_PROVIDER`; Exness uses `EXNESS_NEWS_PROVIDER` and can fall back to the IC Markets settings. For local Ollama, install `qwen3:latest` with `ollama pull qwen3`. Set `IC_MARKETS_OLLAMA_MODEL=qwen3:latest` and, if you use Exness, `EXNESS_NEWS_PROVIDER=ollama` and `EXNESS_OLLAMA_MODEL=qwen3:latest`. For cloud news, use `openai` and provide your own `OPENAI_API_KEY`. Do not commit `.env` or paste credentials into issues or logs.
 
-In the browser, select **IC Markets** or **Exness** before connecting. IC Markets requires a demo account and the server timestamp offset. Exness uses UTC timestamps and identifies demo or real accounts. Run a fresh historical evaluation for the selected broker; reports from one broker do not authorize the other. Broker records and worker locks are separate: IC Markets under `lib/`, Exness under `lib/exness/`. Keep MT5 open while its worker manages exits.
+In the browser, select **IC Markets** or **Exness**, then **DEMO** or **LIVE**, before connecting. IC Markets requires the correct server timestamp offset; Exness uses UTC timestamps. Run a fresh historical evaluation for the selected broker and environment; one environment's report does not authorize another. Keep MT5 open while its worker manages exits.
+
+## Real-account setup and use
+
+Both brokers use the local MT5 Python integration. It supports account inspection, broker order checks, market orders, stop modifications, pending-order cancellation, position closes, and broker history where the account and terminal permit those operations. This project does not use or store a separate broker web API token. MT5 must be installed, connected to the intended account, and allow external Python trading before execution. The dashboard can still show account data when trading permission is disabled.
+
+1. Keep **DEMO** selected for ordinary use. Stop automatic entries in **Automation center** before changing broker or environment.
+2. To use a real account, sign in to the appropriate broker's **real MT5 account** locally. In the sidebar choose the broker and **LIVE**, then click **Connect MT5**. The red LIVE banner must show the intended account number and server. A mode mismatch blocks the connection.
+3. Choose the exact USD gold instrument. In **Strategy & backtesting**, run a new historical evaluation for this broker and environment. IC Markets LIVE requires a passing report; a demo-research consent never authorizes a real entry. Exness LIVE uses its documented validation gate, including its separate explicit session override for the specific failed holdout condition.
+4. In **Automation center**, click **Use this account and gold instrument**, review the trade size and daily limits, then read all connection and strategy gates. To start LIVE automation, acknowledge real-money orders and type the displayed account number. Changing the environment alone never starts entries.
+5. In **Trading terminal**, a qualified signal can be submitted manually only after the account is bound, automatic entries are stopped, and the LIVE acknowledgement and account number match. The same broker, news, risk, duplicate, and account checks run again at submission.
+6. **Trading terminal → Manage broker positions and pending orders** can tighten stops, update pending-order stops, cancel a pending order, or close a position. Each action names the account and ticket, requires confirmation, calls MT5 `order_check`, and records exactly one send attempt. Unknown outcomes require checking MT5 before taking another action.
+7. **Trade history & analytics → Broker deals** shows actual MT5 deals for the selected account over the last 30 days. Bot journals, saved signals, and events are separate tabs.
+
+Demo records remain in `lib/` for IC Markets and `lib/exness/` for Exness. Live records and worker locks are isolated under `lib/live/ic_markets/` and `lib/live/exness/`. The live runtime packages share strategy code with the demo packages but have independent configuration, decisions, events, audit files, and execution journals. Local files are ignored by Git. No real order is submitted by installation or by the unit tests.
 
 ## Tests and optional legacy workflow
 
@@ -50,7 +64,7 @@ For historical Alpaca stock data, fill `ALPACA_API_KEY` and `ALPACA_API_SECRET` 
 
 The sidebar provides **Dashboard** (account and health), **Trading terminal** (chart and explicit manual controls), **AI market intelligence** (technical and sourced news evidence), **Automation center** (entry scanner and watchdog), **Risk management** (read-only limits and exposure), **Settings** (non-secret configuration), **Strategy & backtesting** (historical evaluation), **Paper forecasts** (read-only model research), and **Trade history & analytics** (MT5 orders, fills, saved signals, events, and downloads). The sidebar can be collapsed with Streamlit's native control.
 
-`src/main/code/frontend/app.py` registers native Streamlit pages. `frontend/context.py` keeps the selected broker and account identity in session state. `frontend/services.py` calls the existing broker modules for read-only snapshots, reports, and history; its research snapshot cache expires after ten seconds and daily deal P&L after fifteen seconds. Historical evaluation runs on a background thread. `frontend/components.py` and `frontend/styles.py` define reusable display elements and the dark theme. Each `frontend/pages/` module owns one workspace. Manual orders continue through the existing broker UI helpers and backend risk checks. Page rendering and navigation never submit an order. See [FRONTEND_AUDIT.md](FRONTEND_AUDIT.md) for the former-to-current feature map.
+`src/main/code/frontend/app.py` registers native Streamlit pages. `frontend/context.py` keeps the selected broker, environment, and account identity in session state. `frontend/services.py` calls the matching broker runtime for read-only snapshots, reports, and history; its research snapshot cache expires after ten seconds and daily deal P&L after fifteen seconds. Historical evaluation runs on a background thread. `frontend/components.py` and `frontend/styles.py` define reusable display elements and the dark theme. Each `frontend/pages/` module owns one workspace. Manual orders continue through the broker backend risk checks. Page rendering and navigation never submit an order. See [FRONTEND_AUDIT.md](FRONTEND_AUDIT.md) for the former-to-current feature map.
 
 `.streamlit/config.toml` sets the supported minimal toolbar and dark theme so the local app does not show Deploy or developer menu controls. `frontend/styles.py` contains the remaining terminal-specific CSS. It keeps the native sidebar toggle available while the broker status bar clears the transparent header on desktop and mobile. Start Streamlit from the repository root so this config is loaded; `run.cmd` already does this.
 
@@ -58,7 +72,7 @@ To add a page, create a `render()` function in `frontend/pages/`, register it wi
 
 ## Repository and local files
 
-`src/main/code/dashboard.py` launches `frontend/app.py`. The former `dashboard_ic.py` and `dashboard_exness.py` are retained as reference only. IC Markets lives in `src/main/code/scalp_lab/`; Exness broker-specific modules live in `src/main/code/scalp_lab_exness/` and share unchanged research modules from `scalp_lab/`. Each package uses separate paths and background workers. `src/test/code/tests/` holds `unittest` cases, including display-only frontend checks. Root `.venv` and `.env` hold the ignored local environment and credentials. `lib/` holds ignored records and worker locks. A fresh checkout starts without historical evaluation or saved broker state.
+`src/main/code/dashboard.py` launches `frontend/app.py`. The former `dashboard_ic.py` and `dashboard_exness.py` are retained as reference only. IC Markets lives in `src/main/code/scalp_lab/`; Exness broker-specific modules live in `src/main/code/scalp_lab_exness/`. The `scalp_lab_ic_live/` and `scalp_lab_exness_live/` packages reuse those modules with isolated live paths. `src/test/code/tests/` holds `unittest` cases, including mocked live routing checks. Root `.venv` and `.env` hold the ignored local environment and credentials. `lib/` holds ignored records and worker locks. A fresh checkout starts without historical evaluation or saved broker state.
 
 ## Shared dashboard and background news
 
@@ -72,6 +86,17 @@ News refresh runs in a background thread. The scanner continues calculating char
 conditions while news loads; missing or expired evidence still blocks entries.
 The status panel shows watchdog health, scan/news ages, daily budget headroom and
 entry attempts. Risk headroom is indicative and is rechecked before submission.
+
+In the Automation center, stop entries before editing **Trade settings**. The
+default volume is 0.01 lot, the daily loss limit is 1% of starting equity, and
+the limit is five entry attempts per UTC day. You can save a broker-supported
+lot size, a daily loss percentage from 0.1% to 5%, and an attempt limit from 1
+to 20. Saving settings never starts trading. A saved fixed USD or EUR budget
+takes priority until you save a percentage limit, which switches back to the
+percentage rule. The dashboard shows the calculated budget, entry, stop,
+target, and estimated risk as read-only values. Each order is checked again
+against live broker prices, equity, open exposure, and the daily limits before
+submission.
 
 
 ## Telegram decision notifications
@@ -105,8 +130,8 @@ fees), stop-risk-normalized returns, submission latency and unresolved outcomes.
 Its drawdown uses closed results in entry order, not marked-to-market equity.
 Open trades and signals are not counted as completed trades. Download the JSON
 report to retain the evidence from each test period. These diagnostics do not
-validate profitability or authorize live trading; the demo-only broker block stays
-in place. Worker startup retries transient MT5 initialization failures three times.
+validate profitability or authorize live trading. Worker startup retries transient
+MT5 initialization failures three times.
 
 ## XAU/USD paper forecasts
 

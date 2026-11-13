@@ -1,22 +1,19 @@
 """Read-only data adapters and explicit research actions for frontend pages."""
 import json
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 
-from .context import BROKERS
+from .context import BROKERS, broker_for
 
 
 @st.cache_data(ttl=10, show_spinner=False)
-def _research_snapshot(name, identity, symbol, offset):
-    broker = BROKERS[name]
-    if broker.is_exness:
-        result, _ = broker.gold.snapshot(identity, symbol, offset, read_only=True)
-    else:
-        result, _ = broker.gold.snapshot(identity, symbol, offset)
+def _research_snapshot(name, environment, identity, symbol, offset):
+    broker = broker_for(name, environment)
+    result, _ = broker.gold.snapshot(identity, symbol, offset, read_only=True)
     return result
 
 
@@ -29,9 +26,14 @@ def analysis(broker, identity, symbol, offset, *, refresh=False):
         if result is None:
             return None, "Waiting for a fresh worker snapshot. Previous signals are not actionable."
     else:
-        result = _research_snapshot(broker.name, tuple(identity), symbol, offset)
+        result = _research_snapshot(broker.name, broker.environment, tuple(identity), symbol, offset)
         broker.module("gold_decisions").save(identity, symbol, result)
     return result, None
+
+
+def invalidate_analysis():
+    """Reprice proposals after the user changes lot size or entry limits."""
+    _research_snapshot.clear()
 
 
 def current_orders(broker, identity):
@@ -48,9 +50,9 @@ def current_orders(broker, identity):
 
 
 @st.cache_data(ttl=15, show_spinner=False)
-def daily_trading_pnl(name, identity):
+def daily_trading_pnl(name, identity, environment="demo"):
     """Account trade deals since UTC midnight, including broker fees; no deposits."""
-    broker = BROKERS[name]
+    broker = broker_for(name, environment)
     bridge = broker.bridge
     now = datetime.now(timezone.utc)
     start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -64,6 +66,23 @@ def daily_trading_pnl(name, identity):
     return sum(sum(float(getattr(deal, field, 0) or 0)
                    for field in ("profit", "commission", "swap", "fee"))
                for deal in deals if getattr(deal, "symbol", "") and deal.type in trade_types)
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def broker_deals(name, environment, identity, days=30):
+    """Actual MT5 deals for the selected account and environment."""
+    broker = broker_for(name, environment)
+    bridge = broker.bridge
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(days=days)
+    with bridge.LOCK:
+        mt5 = bridge.api()
+        broker.account(identity)
+        deals = mt5.history_deals_get(start, end)
+        broker.account(identity)
+    if deals is None:
+        raise bridge.DemoError("MT5 could not synchronize broker deal history.")
+    return [deal._asdict() for deal in deals]
 
 
 def latest_decisions(broker, identity, symbols, limit=200):
@@ -88,9 +107,9 @@ def validation_report(broker, symbol):
     return report
 
 
-def evaluate_history(broker_name, identity, symbol, point, offset):
+def evaluate_history(broker_name, environment, identity, symbol, point, offset):
     """Read and evaluate history in a background thread; never submit an order."""
-    broker = BROKERS[broker_name]
+    broker = broker_for(broker_name, environment)
     bridge = broker.bridge
     with bridge.LOCK:
         mt5 = bridge.api()

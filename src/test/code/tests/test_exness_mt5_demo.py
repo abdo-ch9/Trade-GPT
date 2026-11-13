@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace as NS
 from unittest.mock import Mock,patch
 from scalp_lab_exness.mt5_demo import DemoError,checked_account,initialize,preview,submit,quote
+from scalp_lab_exness_live import mt5_demo as live_bridge
 
 
 def terminal():
@@ -85,9 +86,11 @@ class DemoTradeTests(unittest.TestCase):
         m=terminal()
         m.account_info.return_value.trade_mode=m.ACCOUNT_TRADE_MODE_REAL
         m.account_info.return_value.server="Exness-MT5Real"
-        with patch("scalp_lab_exness.mt5_demo.api",return_value=m):
-            ticket=preview((123,"Exness-MT5Real"),"XAUUSDm","BUY",0.01,18,12)
-        self.assertEqual(self.send(m,ticket,":memory:")["state"],"filled")
+        with patch.object(live_bridge, "api", return_value=m), \
+             patch("scalp_lab_exness_live.auto_demo.settings",return_value={'enabled':False}):
+            ticket=live_bridge.preview((123,"Exness-MT5Real"),"XAUUSDm","BUY",0.01,18,12)
+            outcome=live_bridge.submit(ticket,":memory:")
+        self.assertEqual(outcome["state"],"filled")
         m.order_send.assert_called_once()
 
     def test_real_exness_account_can_be_read_without_trading_permissions(self):
@@ -97,14 +100,16 @@ class DemoTradeTests(unittest.TestCase):
         account.server = 'Exness-MT5Real'
         m.terminal_info.return_value.tradeapi_disabled = True
         identity = (account.login, account.server)
-        self.assertIs(checked_account(m, identity, read_only=True), account)
-        with self.assertRaisesRegex(DemoError, 'account changed'):
-            checked_account(m, (999, account.server), read_only=True)
-        with self.assertRaisesRegex(DemoError, 'Trading through Python is disabled'):
-            checked_account(m, identity)
-        account.company = 'Other Broker'
-        with self.assertRaisesRegex(DemoError, 'not identified as Exness'):
+        with self.assertRaisesRegex(DemoError, 'not DEMO'):
             checked_account(m, identity, read_only=True)
+        self.assertIs(live_bridge.checked_account(m, identity, read_only=True), account)
+        with self.assertRaisesRegex(live_bridge.DemoError, 'account changed'):
+            live_bridge.checked_account(m, (999, account.server), read_only=True)
+        with self.assertRaisesRegex(live_bridge.DemoError, 'Trading through Python is disabled'):
+            live_bridge.checked_account(m, identity)
+        account.company = 'Other Broker'
+        with self.assertRaisesRegex(live_bridge.DemoError, 'not identified as Exness'):
+            live_bridge.checked_account(m, identity, read_only=True)
         m.order_send.assert_not_called()
 
     def test_account_switch_during_final_check_blocks_send(self):

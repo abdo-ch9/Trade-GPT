@@ -109,10 +109,10 @@ def validation(symbol):
         return False,'Run historical evaluation before enabling gold entries.'
 
 
-def snapshot(identity,symbol,offset,horizon=5,include_headlines=False):
+def snapshot(identity,symbol,offset,horizon=5,include_headlines=False,*,read_only=False):
     with bridge.LOCK:
         mt5=bridge.api()
-        bridge.checked_account(mt5,identity)
+        bridge.checked_account(mt5,identity,read_only=read_only)
         info=mt5.symbol_info(symbol)
         if info is None or not eligible_symbol(info):
             raise bridge.DemoError('Only the verified USD gold instrument is supported.')
@@ -171,21 +171,23 @@ def snapshot(identity,symbol,offset,horizon=5,include_headlines=False):
     if news_reason:
         blockers.append(news_reason)
     with bridge.LOCK:
-        account=bridge.checked_account(mt5,identity)
+        account=bridge.checked_account(mt5,identity,read_only=read_only)
         add_scenario_risk(result,mt5,symbol,account)
     scenario=result['scenarios'][side]
     # Necessary affordability check only. Final execution also accounts for daily loss and exposures.
     from .auto_demo import settings,daily_budget
-    budget=daily_budget(settings(),account.equity,account.currency)
+    config=settings()
+    lots=config.get('lots',.01)
+    budget=daily_budget(config,account.equity,account.currency)
     risk=scenario.get('risk_amount')
     affordable=risk is not None and risk*1.2<=budget
     if not affordable:
-        blockers.append(f'Minimum approved size 0.01 lot exceeds the configured daily budget or its risk is unavailable (budget {budget:.2f} {account.currency}, including a 20% cost reserve).')
+        blockers.append(f'Selected size {lots:g} lot exceeds the configured daily budget or its risk is unavailable (budget {budget:.2f} {account.currency}, including a 20% cost reserve).')
     result['checks'] += [{'Check':'Spread ≤ 20% of M5 ATR','Passed':bool(spread<=.2*row.atr5)},
                          {'Check':'Quote within one M1 ATR of signal close','Passed':bool(abs((tick.ask+tick.bid)/2-row.close)<=row.atr)},
                          {'Check':'Current news agrees / neutral','Passed':news_reason is None},
                          {'Check':'Research permission','Passed':bool(valid)},
-                         {'Check':'0.01 lot fits configured daily budget before existing losses/exposure','Passed':bool(affordable)}]
+                         {'Check':f'{lots:g} lot fits configured daily budget before existing losses/exposure','Passed':bool(affordable)}]
     result['action']='BLOCKED' if blockers else side+' setup'
     result['reasons']=[f'{side}: {row.setup}; {row.regime}.']+blockers
     return result,{}
@@ -193,6 +195,8 @@ def snapshot(identity,symbol,offset,horizon=5,include_headlines=False):
 
 def execution_validation(symbol,config=None):
     """Explicit demo research override; historical results remain unchanged."""
+    if __package__.endswith('_live'):
+        return validation(symbol)
     if config is None:
         try:
             config=json.loads((ROOT/'xm_auto_demo.json').read_text())

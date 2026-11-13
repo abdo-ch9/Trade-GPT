@@ -1,4 +1,4 @@
-"""IC Markets MT5 demo orders. Never accepts a real account."""
+"""IC Markets MT5 orders, with an account-mode check for each runtime."""
 import math
 import os
 import sqlite3
@@ -32,13 +32,16 @@ def api():
         raise DemoError("Install the optional connector: python -m pip install MetaTrader5") from exc
 
 
-def checked_account(mt5,expected=None):
+def checked_account(mt5,expected=None,*,read_only=False):
     terminal=mt5.terminal_info()
     account=mt5.account_info()
+    environment = "real" if __package__.endswith("_live") else "demo"
+    required_mode = (mt5.ACCOUNT_TRADE_MODE_REAL if environment == "real"
+                     else mt5.ACCOUNT_TRADE_MODE_DEMO)
     if terminal is None or account is None or not terminal.connected:
-        raise DemoError("Open IC Markets MT5 and sign in to your demo account.")
-    if account.trade_mode!=mt5.ACCOUNT_TRADE_MODE_DEMO:
-        raise DemoError("Blocked: this is not a DEMO account. Real accounts are never accepted.")
+        raise DemoError(f"Open IC Markets MT5 and sign in to your {environment.upper()} account.")
+    if account.trade_mode != required_mode:
+        raise DemoError(f"Connected MT5 account is not {environment.upper()}. Select the correct environment and reconnect.")
     broker=(str(account.company or "")+" "+str(account.server or "")).lower()
     compact="".join(character for character in broker if character.isalnum())
     if "icmarkets" not in compact and "internationalcapitalmarkets" not in compact:
@@ -46,7 +49,8 @@ def checked_account(mt5,expected=None):
     identity=(account.login,account.server)
     if expected is not None and tuple(expected)!=identity:
         raise DemoError("The MT5 account changed. Reconnect and review a new ticket.")
-    if not account.trade_allowed or not account.trade_expert or not terminal.trade_allowed or terminal.tradeapi_disabled:
+    if not read_only and (not account.trade_allowed or not account.trade_expert
+                          or not terminal.trade_allowed or terminal.tradeapi_disabled):
         raise DemoError("Trading through Python is disabled in the MT5 terminal or account. Review MT5's trading permissions locally.")
     return account
 
@@ -59,20 +63,20 @@ def initialize(mt5, path=""):
     return mt5.initialize(path, timeout=10000) if path else mt5.initialize(timeout=10000)
 
 
-def connect(path=""):
+def connect(path="", *, read_only=False):
     with LOCK:
         mt5=api()
         ok=initialize(mt5,path)
         if not ok:
-            raise DemoError("Cannot connect to MT5. Install the IC Markets MT5 terminal, open it, and sign in to demo.")
-        account=checked_account(mt5)
+            raise DemoError("Cannot connect to MT5. Open the IC Markets MT5 terminal and sign in to the selected account.")
+        account=checked_account(mt5, read_only=read_only)
         return (account.login,account.server)
 
 
-def inspect(identity):
+def inspect(identity, *, read_only=False):
     with LOCK:
         mt5=api()
-        account=checked_account(mt5,identity)
+        account=checked_account(mt5,identity,read_only=read_only)
         symbols=mt5.symbols_get()
         if symbols is None:
             raise DemoError("MT5 could not read available instruments.")
@@ -159,7 +163,8 @@ def preview(identity,symbol,side,lots,tp_bps,sl_bps,deviation=20,utc_offset_hour
         request={"action":mt5.TRADE_ACTION_DEAL,"symbol":symbol,"volume":float(lots),
                  "type":mt5.ORDER_TYPE_BUY if side=="BUY" else mt5.ORDER_TYPE_SELL,
                  "price":entry,"sl":sl,"tp":tp,"deviation":int(deviation),"magic":641104,
-                 "comment":"demo-"+token[:12],"type_time":mt5.ORDER_TIME_GTC,"type_filling":filling}
+                 "comment":("live-" if __package__.endswith("_live") else "demo-")+token[:12],
+                 "type_time":mt5.ORDER_TIME_GTC,"type_filling":filling}
         check=mt5.order_check(request)
         if check is None or check.retcode!=0:
             raise DemoError("IC Markets order check failed: "+(str(check.comment) if check else "no response"))
@@ -175,11 +180,11 @@ def submit(ticket,ledger=LEDGER):
     with LOCK:
         from .auto_demo import settings, MAGIC
         if settings().get('enabled') and ticket['request'].get('magic')!=MAGIC:
-            raise DemoError('Stop automatic demo trading before placing manual orders here.')
+            raise DemoError('Stop automatic trading before placing manual orders here.')
         mt5=api()
         checked_account(mt5,ticket["identity"])
         if not 0<=time.time()-ticket["created"]<=30:
-            raise DemoError("Ticket expired. Refresh its quote before placing a demo trade.")
+            raise DemoError("Ticket expired. Refresh its quote before placing a trade.")
         request=ticket["request"]
         no_existing_exposure(mt5,request["symbol"])
         if "utc_offset_hours" not in ticket:
@@ -221,6 +226,8 @@ def submit(ticket,ledger=LEDGER):
 
 
 def render_panel(chart_symbol):
+    if __package__.endswith("_live"):
+        raise DemoError("Use the current Trading terminal for LIVE orders and account confirmation.")
     import streamlit as st
     st.subheader("IC Markets demo trade")
     st.caption("IC Markets demo trading only. This panel uses broker quotes and lots, not Alpaca share quantities. Automatic mode must be started explicitly.")

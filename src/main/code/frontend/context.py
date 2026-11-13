@@ -7,6 +7,7 @@ from importlib import import_module
 class Broker:
     name: str
     package: str
+    environment: str = "demo"
 
     def module(self, name):
         return import_module(f"{self.package}.{name}")
@@ -29,24 +30,20 @@ class Broker:
 
     def connect(self):
         bridge = self.bridge
-        return bridge.connect(read_only=True) if self.is_exness else bridge.connect()
+        return bridge.connect(read_only=True)
 
     def inspect(self, identity):
         bridge = self.bridge
-        return bridge.inspect(identity, read_only=True) if self.is_exness else bridge.inspect(identity)
+        return bridge.inspect(identity, read_only=True)
 
     def account(self, identity):
         bridge = self.bridge
         with bridge.LOCK:
             mt5 = bridge.api()
-            return (bridge.checked_account(mt5, identity, read_only=True)
-                    if self.is_exness else bridge.checked_account(mt5, identity))
+            return bridge.checked_account(mt5, identity, read_only=True)
 
     def mode(self, account):
-        if not self.is_exness:
-            return "demo"
-        return ("real" if account.trade_mode == self.bridge.api().ACCOUNT_TRADE_MODE_REAL
-                else "demo")
+        return self.environment
 
 
 BROKERS = {
@@ -54,17 +51,27 @@ BROKERS = {
     "Exness": Broker("Exness", "scalp_lab_exness"),
 }
 
+LIVE_BROKERS = {
+    "IC Markets": Broker("IC Markets", "scalp_lab_ic_live", "real"),
+    "Exness": Broker("Exness", "scalp_lab_exness_live", "real"),
+}
+
+
+def broker_for(name, environment="demo"):
+    return (LIVE_BROKERS if environment == "real" else BROKERS)[name]
+
 
 def selected():
     import streamlit as st
-    return BROKERS[st.session_state.get("selected_broker", "IC Markets")]
+    return broker_for(st.session_state.get("selected_broker", "IC Markets"),
+                      "real" if st.session_state.get("trading_environment") == "LIVE" else "demo")
 
 
 def clear_broker_state():
     """Drop account-scoped widgets when the broker changes, never broker records."""
     import streamlit as st
     for key in list(st.session_state):
-        if key.startswith(("gold_", "xm_", "terminal_", "confirm_", "forecast_")):
+        if key.startswith(("gold_", "xm_", "terminal_", "confirm_", "forecast_", "automation_")):
             del st.session_state[key]
 
 

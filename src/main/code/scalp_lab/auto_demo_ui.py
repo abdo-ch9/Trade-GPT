@@ -21,8 +21,9 @@ def render_trade_rows(identity,offset,current_status,enabled):
                            'gold_saved_decisions.csv',mime='text/csv',key='saved_gold_decisions')
     else:
         st.caption('The next directional setup will be saved here automatically.')
-    st.write('**Trade a table setup · IC Markets demo · 0.01 lot**')
-    st.caption('Each button submits one demo market order after refreshing the chart, news and quote. Entry and dynamic levels may change. The same daily budget, five-attempt limit and duplicate-order protection apply.')
+    lots=auto.settings().get('lots',.01)
+    st.write(f'**Trade a table setup · IC Markets demo · {lots:g} lot**')
+    st.caption(f"Each button submits one demo market order after refreshing the chart, news and quote. Entry and dynamic levels may change. The same daily budget, {auto.settings().get('max_entries',5)}-attempt limit and duplicate-order protection apply.")
     if enabled:
         st.info('Stop automatic trading to enable these manual trade buttons.')
     headers=st.columns([2,1,1.4,1.4,1.4,1,2])
@@ -36,7 +37,7 @@ def render_trade_rows(identity,offset,current_status,enabled):
             value=row.get(key)
             col.write('—' if value is None else f'{value:.5f}' if key in ('entry','take_profit','stop_loss') else f'{value:.2f}')
         qualifies=row.get('decision') in ('BUY setup','SELL setup') and side in ('BUY','SELL')
-        if cols[6].button(f'{side} 0.01 demo' if qualifies else 'No setup',
+        if cols[6].button(f'{side} {lots:g} demo' if qualifies else 'No setup',
                           key='row_trade_'+symbol,disabled=enabled or not qualifies,
                           help='Refreshes and rechecks this setup before submitting to your IC Markets demo account.'):
             try:
@@ -61,8 +62,55 @@ def render(identity,instruments,offset):
         st.info('AI NEWS NOT CONNECTED: '+news_connection_reason+' AI news is required for every entry.')
     else:
         st.caption('News service: '+news_connection_reason)
-    symbols=auto.eligible(instruments)
     config = auto.settings()
+    lots=config.get('lots',.01)
+    symbols=auto.eligible(instruments,lots)
+    from .gold import eligible_symbol
+    selected=next((item for item in instruments if item.name in config.get('symbols',[])
+                   and eligible_symbol(item)),None)
+    if selected is None:
+        selected=next((item for item in instruments if eligible_symbol(item)),None)
+    if selected is not None:
+        st.write('**Trade settings**')
+        chosen=st.number_input('Trade size (lots)',
+                               min_value=float(selected.volume_min),
+                               max_value=float(selected.volume_max),
+                               value=float(lots if auto.valid_lots(lots,selected) else selected.volume_min),
+                               step=float(selected.volume_step),
+                               format='%.4f',disabled=bool(config.get('enabled')),
+                               key=f'ic_automation_lots_{lots}')
+        if st.button('Save trade size',key='save_ic_automation_lots',
+                     disabled=bool(config.get('enabled')) or chosen==lots):
+            try:
+                auto.set_lots(chosen)
+            except bridge.DemoError as exc:
+                st.error(str(exc))
+            else:
+                st.rerun()
+        st.caption('Stop automation to edit. The broker’s volume minimum, maximum and step apply. Saving a size does not start trading.')
+        percent=st.number_input('Daily loss limit (% of starting equity)',
+                                min_value=0.1,max_value=5.0,
+                                value=float(config.get('daily_loss_fraction',.01)*100),
+                                step=0.1,format='%.1f',disabled=bool(config.get('enabled')),
+                                key=f"ic_daily_limit_{config.get('daily_loss_fraction',.01)}")
+        attempts=st.number_input('Entry attempts per UTC day',min_value=1,max_value=20,
+                                 value=int(config.get('max_entries',5)),step=1,
+                                 disabled=bool(config.get('enabled')),
+                                 key=f"ic_entry_attempts_{config.get('max_entries',5)}")
+        limits_changed=(abs(percent-config.get('daily_loss_fraction',.01)*100)>1e-9
+                        or attempts != config.get('max_entries',5)
+                        or config.get('daily_loss_usd') is not None
+                        or config.get('daily_loss_eur') is not None)
+        if st.button('Save entry limits',key='save_ic_entry_limits',
+                     disabled=bool(config.get('enabled')) or not limits_changed):
+            try:
+                auto.set_entry_limits(percent,int(attempts))
+            except bridge.DemoError as exc:
+                st.error(str(exc))
+            else:
+                st.rerun()
+        if config.get('daily_loss_usd') is not None or config.get('daily_loss_eur') is not None:
+            st.caption('A saved fixed-currency budget is active. Saving the percentage switches back to a percentage budget.')
     context_changed = (tuple(config.get('identity', [])) != tuple(identity)
                        or config.get('symbols') != symbols or config.get('offset') != offset)
     if context_changed and not config.get('enabled'):
@@ -78,7 +126,7 @@ def render(identity,instruments,offset):
     if not news_connected:
         start_blockers.append(news_connection_reason)
     if len(symbols) != 1:
-        start_blockers.append('Choose exactly one verified gold instrument that supports 0.01 lot.')
+        start_blockers.append(f'Choose exactly one verified gold instrument that supports {lots:g} lot.')
     elif context_changed:
         start_blockers.append('Use the connected demo account and gold instrument before starting.')
     else:
@@ -89,10 +137,17 @@ def render(identity,instruments,offset):
         st.warning('User-approved demo research: historical tests are advisory. New bot positions use broker SL/TP and a 15-minute candle-based exit deadline. News and account risk limits still apply.')
     if auto.settings().get('exclude_tesla_stop_risk') is True:
         st.warning('Tesla is excluded from open-position stop-risk estimates at your request. Its account-equity gains/losses still count. The daily budget does not cover Tesla’s additional loss to its stop.')
-    budget_label=(f"${auto.settings()['daily_loss_usd']:.2f} daily loss budget" if auto.settings().get('daily_loss_usd') is not None else '1% daily equity budget')
+    budget_label=(f"${auto.settings()['daily_loss_usd']:.2f} daily loss budget" if auto.settings().get('daily_loss_usd') is not None else f"{config.get('daily_loss_fraction',.01)*100:g}% daily equity budget")
     if auto.settings().get('daily_loss_eur') is not None:
         budget_label = f"€{auto.settings()['daily_loss_eur']:.2f} daily loss budget (converted using fresh EURUSD bid for USD accounts)"
-    st.caption(f'{len(symbols)} IC Markets gold instruments eligible for exactly 0.01 lot. Daily equity loss plus reserved open-stop risk and a 20% cost reserve for the new trade must fit the {budget_label}. Five entry attempts per UTC day. Stops/targets attached to every entry.')
+    st.caption(f"{len(symbols)} IC Markets gold instruments eligible for {lots:g} lot. Daily equity loss plus reserved open-stop risk and a 20% cost reserve for the new trade must fit the {budget_label}. {config.get('max_entries',5)} entry attempts per UTC day. Stops/targets attached to every entry.")
+    try:
+        account=bridge.checked_account(bridge.api(),identity)
+        budget=auto.daily_budget(config,account.equity,account.currency)
+        st.metric('Estimated daily loss budget',f'{budget:.2f} {account.currency}',
+                  help='Read-only estimate from current equity. The order check uses the recorded UTC-day baseline, current drawdown, open-position stop risk and a 20% reserve.')
+    except bridge.DemoError:
+        st.caption('Calculated daily loss budget is unavailable until the demo account is connected.')
     st.caption('Background worker runs with the browser closed, for up to eight hours of entries per start. Stop blocks new entries; timed exits for new bot positions remain active. Keep this computer and MT5 running. Broker stops remain in place if the worker is offline; timed exits can be delayed by downtime or unavailable quotes.')
     config=auto.settings()
     left,right=st.columns(2)
@@ -183,7 +238,7 @@ def render(identity,instruments,offset):
                       for s,v in current_status.items()],hide_index=True,width='stretch',
                      column_config={name:st.column_config.NumberColumn(name,format='%.5f')
                                     for name in ('Indicative entry','Take profit','Stop loss')})
-        st.caption('Proposed 0.01-lot scenarios, not confirmed fills. Risk is estimated loss at stop / equity × 100, before fees and slippage. Levels can appear for a directional bias even when the decision blocks trading. Older rows populate on their next scan; blanks mean unavailable.')
+        st.caption(f'Proposed {lots:g}-lot scenarios, not confirmed fills. Entry, stop, target and risk are calculated and read-only. Risk is estimated loss at stop / equity × 100, before fees and slippage. Levels can appear for a directional bias even when the decision blocks trading. Older rows populate on their next scan; blanks mean unavailable.')
         render_trade_rows(identity,offset,current_status,auto.settings().get('enabled',False))
         errors=[(s,v) for s,v in current_status.items() if v.get('state')=='error' and v.get('traceback')]
         if errors:

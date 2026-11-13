@@ -41,7 +41,7 @@ def render():
         ("Closed bot trades", str(forward["closed_trades"])),
         ("Closed bot P&L", components.number(forward["net_pnl"], unit=account.currency)),
     ])
-    tabs = st.tabs(["Open positions", "Pending orders", "Closed trades", "Saved signals", "Events"])
+    tabs = st.tabs(["Open positions", "Pending orders", "Broker deals", "Closed bot trades", "Saved signals", "Events"])
     with tabs[0]:
         rows = _filtered(positions, query)
         st.dataframe(rows, hide_index=True, width="stretch") if rows else components.empty(
@@ -51,6 +51,14 @@ def render():
         st.dataframe(rows, hide_index=True, width="stretch") if rows else components.empty(
             "No matching orders", "MT5 reports no pending order matching this search.")
     with tabs[2]:
+        try:
+            deals = _filtered(services.broker_deals(broker.name, broker.environment,
+                                                    tuple(identity)), query)
+            st.dataframe(deals, hide_index=True, width="stretch") if deals else components.empty(
+                "No matching broker deals", "MT5 reports no deal in the last 30 days matching this search.")
+        except broker.bridge.DemoError as exc:
+            st.warning(str(exc))
+    with tabs[3]:
         trades = _filtered(forward.get("trades") or [], query)
         components.metrics([
             ("Win rate", components.number(forward.get("win_rate") * 100, 1, "%")
@@ -65,7 +73,7 @@ def render():
             "No matching closed bot trades", "This table counts reconciled fills and exits, not proposed signals.")
         st.download_button("Download forward report", json.dumps(forward, indent=2),
                            "forward_report.json", mime="application/json")
-    with tabs[3]:
+    with tabs[4]:
         decisions = _filtered(services.latest_decisions(broker, identity, [instrument.name]), query)
         if st.checkbox("Show rejected decisions only", key="history_rejected_only"):
             decisions = [row for row in decisions if row.get("Decision") == "BLOCKED"]
@@ -74,7 +82,7 @@ def render():
         if decisions:
             st.download_button("Download saved signals", services.csv_output(decisions),
                                "gold_decisions.csv", mime="text/csv")
-    with tabs[4]:
+    with tabs[5]:
         rows = _filtered(services.events(broker, limit=200), query)
         compact = [{"Time (UTC)": components.utc(row.get("time")),
                     "Type": row.get("kind"), "Message": row.get("message")}

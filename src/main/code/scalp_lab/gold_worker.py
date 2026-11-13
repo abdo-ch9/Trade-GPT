@@ -75,7 +75,7 @@ def ensure_running():
 
     with open(ROOT/'gold_worker.log','a',encoding='utf-8') as log:
 
-        subprocess.Popen([sys.executable,'-m','scalp_lab.gold_worker'],cwd=PROJECT_ROOT/'src/main/code',
+        subprocess.Popen([sys.executable,'-m',f'{__package__}.gold_worker'],cwd=PROJECT_ROOT/'src/main/code',
 
             stdout=log,stderr=log,stdin=subprocess.DEVNULL,
 

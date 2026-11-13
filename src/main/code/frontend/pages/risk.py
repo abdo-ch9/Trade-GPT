@@ -32,22 +32,25 @@ def render():
         ("Daily budget", components.number(risk["budget"], unit=risk["currency"])),
         ("Remaining", components.number(risk["remaining"], unit=risk["currency"])),
         ("Reserved stop risk", components.number(reserved, unit=risk["currency"])),
-        ("Entry attempts", f"{risk['attempts']} / 5"),
+        ("Entry attempts", f"{risk['attempts']} / {config.get('max_entries', 5)}"),
     ])
     if risk["remaining"] <= 0:
         st.warning("No daily risk headroom remains. New orders are blocked by backend checks.")
+    budget_rule = (f"{config['daily_loss_eur']:.2f} EUR fixed" if config.get("daily_loss_eur") is not None
+                   else f"{config['daily_loss_usd']:.2f} USD fixed" if config.get("daily_loss_usd") is not None
+                   else f"{config.get('daily_loss_fraction', .01) * 100:g}% of baseline equity")
     left, right = st.columns(2, gap="large")
     with left:
         components.section("Read-only execution rules")
         st.dataframe([
-            {"Rule": "Position size", "Value": "0.01 lot"},
-            {"Rule": "Daily entry attempts", "Value": "5 maximum"},
-            {"Rule": "Daily budget", "Value": "1% of baseline equity, unless configured lower"},
+            {"Rule": "Position size", "Value": f"{config.get('lots', .01):g} lot"},
+            {"Rule": "Daily entry attempts", "Value": f"{config.get('max_entries', 5)} maximum"},
+            {"Rule": "Daily budget", "Value": budget_rule},
             {"Rule": "New trade cost reserve", "Value": "20% of estimated stop loss"},
             {"Rule": "Duplicate protection", "Value": "Account, candle, and order journal"},
             {"Rule": "Stop / target", "Value": "Attached to broker order"},
         ], hide_index=True, width="stretch")
-        st.caption("These values describe backend behavior. This page cannot change them.")
+        st.caption("This page shows current values. Edit fixed trade settings in Automation center; calculated amounts remain read-only.")
     with right:
         components.section("Broker constraints · " + instrument.name)
         st.dataframe([

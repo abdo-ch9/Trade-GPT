@@ -41,9 +41,11 @@ def utc(stamp):
 
 
 def metrics(items):
-    columns = st.columns(len(items))
-    for column, (label, value) in zip(columns, items):
-        column.metric(label, value)
+    for start in range(0, len(items), 4):
+        group = items[start:start + 4]
+        columns = st.columns(len(group), gap="small")
+        for column, (label, value) in zip(columns, group):
+            column.metric(label, value)
 
 
 def status_bar(broker, account, mode, worker):
@@ -53,8 +55,9 @@ def status_bar(broker, account, mode, worker):
     worker_label = "Online" if fresh and worker.get("scanner_alive") else "Unavailable"
     worker_class = "good" if fresh and worker.get("scanner_alive") else "warn"
     st.markdown(
-        '<div class="terminal-status">'
+        f'<div class="terminal-status is-{mode}">'
         f'<span>Broker <strong>{broker.name}</strong></span>'
+        f'<span>Environment <strong class="environment-label">{mode.upper()}</strong></span>'
         f'<span>Account <strong>{account_label}</strong></span>'
         f'<span>Worker <strong class="{worker_class}">{worker_label}</strong></span>'
         '</div>', unsafe_allow_html=True)

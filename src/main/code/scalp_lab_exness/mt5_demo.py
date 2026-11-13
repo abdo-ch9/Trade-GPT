@@ -43,8 +43,11 @@ def checked_account(mt5,expected=None,*,read_only=False):
     account=mt5.account_info()
     if terminal is None or account is None or not terminal.connected:
         raise DemoError("Open Exness MT5 and sign in to your trading account.")
-    if account.trade_mode not in (mt5.ACCOUNT_TRADE_MODE_DEMO, mt5.ACCOUNT_TRADE_MODE_REAL):
-        raise DemoError("Connect an Exness demo or real trading account.")
+    environment = "real" if __package__.endswith("_live") else "demo"
+    required_mode = (mt5.ACCOUNT_TRADE_MODE_REAL if environment == "real"
+                     else mt5.ACCOUNT_TRADE_MODE_DEMO)
+    if account.trade_mode != required_mode:
+        raise DemoError(f"Connected MT5 account is not {environment.upper()}. Select the correct environment and reconnect.")
     if not all(str(value or "").strip().lower().startswith("exness")
                for value in (account.company, account.server)):
         raise DemoError("The connected account is not identified as Exness.")
@@ -163,7 +166,8 @@ def preview(identity,symbol,side,lots,tp_bps,sl_bps,deviation=20,utc_offset_hour
         request={"action":mt5.TRADE_ACTION_DEAL,"symbol":symbol,"volume":float(lots),
                  "type":mt5.ORDER_TYPE_BUY if side=="BUY" else mt5.ORDER_TYPE_SELL,
                  "price":entry,"sl":sl,"tp":tp,"deviation":int(deviation),"magic":641104,
-                 "comment":"demo-"+token[:12],"type_time":mt5.ORDER_TIME_GTC,"type_filling":filling}
+                 "comment":("live-" if __package__.endswith("_live") else "demo-")+token[:12],
+                 "type_time":mt5.ORDER_TIME_GTC,"type_filling":filling}
         check=mt5.order_check(request)
         if check is None or check.retcode!=0:
             raise DemoError("Exness order check failed: "+(str(check.comment) if check else "no response"))
@@ -179,11 +183,11 @@ def submit(ticket,ledger=LEDGER):
     with LOCK:
         from .auto_demo import settings, MAGIC
         if settings().get('enabled') and ticket['request'].get('magic')!=MAGIC:
-            raise DemoError('Stop automatic demo trading before placing manual orders here.')
+            raise DemoError('Stop automatic trading before placing manual orders here.')
         mt5=api()
         checked_account(mt5,ticket["identity"])
         if not 0<=time.time()-ticket["created"]<=30:
-            raise DemoError("Ticket expired. Refresh its quote before placing a demo trade.")
+            raise DemoError("Ticket expired. Refresh its quote before placing a trade.")
         request=ticket["request"]
         no_existing_exposure(mt5,request["symbol"])
         if "utc_offset_hours" not in ticket:
@@ -225,6 +229,8 @@ def submit(ticket,ledger=LEDGER):
 
 
 def render_panel(chart_symbol):
+    if __package__.endswith("_live"):
+        raise DemoError("Use the current Trading terminal for LIVE orders and account confirmation.")
     import streamlit as st
     st.subheader("Exness demo trade")
     st.caption("Exness demo trading only. This panel uses broker quotes and lots, not Alpaca share quantities. Automatic mode must be started explicitly.")

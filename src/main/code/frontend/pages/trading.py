@@ -51,6 +51,110 @@ def _chart(result, symbol, timeframe):
         st.caption("M5/M15 candles are display-only aggregates of completed M1 bars. Indicator overlays retain the M1 research values; trading decisions are unchanged.")
 
 
+def _position_management(broker, identity, account, offset, positions, orders):
+    """Explicit broker actions with a fresh backend account and ticket check."""
+    manager = broker.module("trade_management")
+    mode = broker.mode(account)
+    with st.expander("Manage broker positions and pending orders"):
+        st.caption(f"{broker.name} {mode.upper()} · account {account.login}. Every action is checked again at MT5.")
+        if mode == "real":
+            st.error("LIVE · REAL MONEY. Changes and closes affect the real broker account.")
+        if positions:
+            tickets = {int(row["ticket"]): row for row in positions}
+            ticket = st.selectbox("Open position", list(tickets),
+                                  format_func=lambda key: f"{key} · {tickets[key]['symbol']} · {tickets[key]['volume']} lot",
+                                  key="terminal_manage_position")
+            position = tickets[ticket]
+            with st.form("position_stops_form"):
+                st.write("Update stop loss and take profit")
+                stop = st.number_input("Stop loss price", min_value=0.00001,
+                                       value=float(position.get("sl") or 0.00001), format="%.5f")
+                target = st.number_input("Take profit price", min_value=0.00001,
+                                         value=float(position.get("tp") or 0.00001), format="%.5f")
+                reviewed = st.checkbox("I reviewed this position and both new levels")
+                typed = (st.text_input(f"Type LIVE account {account.login}", autocomplete="off")
+                         if mode == "real" else str(account.login))
+                update = st.form_submit_button("Update broker stops")
+            if update:
+                if not reviewed or typed.strip() != str(account.login):
+                    st.error("Review the levels and confirm the selected account first.")
+                else:
+                    try:
+                        st.session_state.terminal_manage_outcome = manager.update_stops(
+                            identity, ticket, position["symbol"], stop, target,
+                            confirm_live=mode == "real")
+                        st.rerun()
+                    except broker.bridge.DemoError as exc:
+                        st.error(str(exc))
+            with st.form("position_close_form"):
+                st.write(f"Close position {ticket} · {position['symbol']} · {position['volume']} lot")
+                reviewed_close = st.checkbox("I understand this sends a market close order")
+                typed_close = (st.text_input(f"Type LIVE account {account.login} to close",
+                                             autocomplete="off") if mode == "real" else str(account.login))
+                close = st.form_submit_button("Close this position")
+            if close:
+                if not reviewed_close or typed_close.strip() != str(account.login):
+                    st.error("Confirm the selected account and close action first.")
+                else:
+                    try:
+                        st.session_state.terminal_manage_outcome = manager.close_position(
+                            identity, ticket, position["symbol"], offset, confirm_live=mode == "real")
+                        st.rerun()
+                    except broker.bridge.DemoError as exc:
+                        st.error(str(exc))
+        if orders:
+            pending = {int(row["ticket"]): row for row in orders}
+            order_ticket = st.selectbox("Pending order", list(pending),
+                                        format_func=lambda key: f"{key} · {pending[key]['symbol']}",
+                                        key="terminal_manage_order")
+            selected_order = pending[order_ticket]
+            with st.form("pending_stops_form"):
+                st.write(f"Update pending order {order_ticket} stops")
+                order_stop = st.number_input("Pending stop loss", min_value=0.00001,
+                                             value=float(selected_order.get("sl") or 0.00001),
+                                             format="%.5f")
+                order_target = st.number_input("Pending take profit", min_value=0.00001,
+                                               value=float(selected_order.get("tp") or 0.00001),
+                                               format="%.5f")
+                reviewed_pending = st.checkbox("I reviewed the pending order and both new levels")
+                typed_pending = (st.text_input(f"Type LIVE account {account.login} to modify",
+                                               autocomplete="off") if mode == "real" else str(account.login))
+                update_pending = st.form_submit_button("Update pending order stops")
+            if update_pending:
+                if not reviewed_pending or typed_pending.strip() != str(account.login):
+                    st.error("Confirm the selected account and order levels first.")
+                else:
+                    try:
+                        st.session_state.terminal_manage_outcome = manager.update_pending_stops(
+                            identity, order_ticket, selected_order["symbol"], order_stop,
+                            order_target, confirm_live=mode == "real")
+                        st.rerun()
+                    except broker.bridge.DemoError as exc:
+                        st.error(str(exc))
+            with st.form("pending_cancel_form"):
+                reviewed_order = st.checkbox("I reviewed the pending order to cancel")
+                typed_order = (st.text_input(f"Type LIVE account {account.login} to cancel",
+                                             autocomplete="off") if mode == "real" else str(account.login))
+                cancel = st.form_submit_button("Cancel pending order")
+            if cancel:
+                if not reviewed_order or typed_order.strip() != str(account.login):
+                    st.error("Confirm the selected account and pending order first.")
+                else:
+                    try:
+                        st.session_state.terminal_manage_outcome = manager.cancel_pending(
+                            identity, order_ticket, pending[order_ticket]["symbol"],
+                            confirm_live=mode == "real")
+                        st.rerun()
+                    except broker.bridge.DemoError as exc:
+                        st.error(str(exc))
+        if not positions and not orders:
+            st.caption("No open position or pending order on this account.")
+    outcome = st.session_state.get("terminal_manage_outcome")
+    if outcome:
+        (st.success if outcome.get("state") == "filled" else st.warning)(
+            f"Broker action: {outcome.get('state')} · {outcome.get('message', '')}")
+
+
 def render():
     components.heading("Execution / XAUUSD", "Trading terminal",
                        "Live broker chart and reviewed order controls.")
@@ -59,6 +163,15 @@ def render():
         return
     broker, identity, account, instruments, instrument, offset = state
     symbol = instrument.name
+    exposure_error = None
+    try:
+        positions, orders = services.current_orders(broker, identity)
+    except broker.bridge.DemoError as exc:
+        positions, orders = [], []
+        exposure_error = str(exc)
+        st.warning("Account exposure unavailable: " + str(exc))
+    if exposure_error is None:
+        _position_management(broker, identity, account, offset, positions, orders)
     timeframe = st.segmented_control("Chart timeframe", ("M1", "M5", "M15"),
                                      default=st.session_state.get("display_timeframe", "M1"),
                                      key="terminal_timeframe")
@@ -101,34 +214,39 @@ def render():
                             if all(isinstance(value, (int, float)) for value in (entry, stop, target))
                             and entry != stop else None)
             components.metrics([
+                ("Lots", components.number(scenario.get("lots"), 2)),
                 ("Entry", components.number(scenario.get("entry"), 3)),
                 ("Stop loss", components.number(scenario.get("sl"), 3)),
                 ("Take profit", components.number(scenario.get("tp"), 3)),
                 ("Reward / risk", components.number(reward_ratio, 2)),
+                ("Estimated loss at stop", components.number(scenario.get("risk_amount"), 2,
+                                                            account.currency)),
+                ("Risk / equity", components.number(scenario.get("risk_pct"), 2, "%")),
             ])
-            st.caption("Proposed levels only. Orders and fills appear in the history page.")
+            st.caption("Calculated, read-only proposal. Risk excludes fees and slippage. Orders and fills appear in the history page.")
         with st.expander("Detailed validation checks"):
             st.dataframe(result.get("checks", []), hide_index=True, width="stretch")
     with right:
         components.section("Open positions and pending orders")
-        try:
-            positions, orders = services.current_orders(broker, identity)
-            st.metric("Open positions", len(positions))
-            st.metric("Pending orders", len(orders))
-            if positions:
-                st.dataframe([{key: row.get(key) for key in
-                               ("ticket", "symbol", "volume", "price_open", "sl", "tp", "profit")}
-                              for row in positions], hide_index=True, width="stretch")
-            else:
-                st.caption("No open positions on this account.")
-        except broker.bridge.DemoError as exc:
-            st.warning(str(exc))
+        st.metric("Open positions", len(positions))
+        st.metric("Pending orders", len(orders))
+        if positions:
+            st.dataframe([{key: row.get(key) for key in
+                           ("ticket", "symbol", "volume", "price_open", "sl", "tp", "profit")}
+                          for row in positions], hide_index=True, width="stretch")
+        else:
+            st.caption("No open positions on this account.")
     components.section("Reviewed manual execution")
-    if broker.is_exness and broker.mode(account) == "real":
-        if not st.checkbox("Show real-money order controls", key="confirm_real_manual"):
-            st.warning("Real account connected. Manual controls are hidden until you acknowledge real-money execution.")
-            return
+    live_confirmed = True
+    if broker.mode(account) == "real":
+        st.error(f"LIVE · REAL MONEY · {broker.name} account {account.login}. This button can place a real order.")
+        acknowledged = st.checkbox("I understand this order will use real money",
+                                   key="confirm_real_manual")
+        typed_account = st.text_input(f"Type account number {account.login} to enable the LIVE order",
+                                      key="confirm_live_manual_account", autocomplete="off")
+        live_confirmed = acknowledged and typed_account.strip() == str(account.login)
     config = broker.auto.settings()
+    lots = config.get("lots", .01)
     side = result.get("chart_signal")
     qualifies = side in ("BUY", "SELL") and result.get("action") == f"{side} setup"
     bound = (tuple(config.get("identity") or ()) == tuple(identity)
@@ -137,12 +255,14 @@ def render():
         st.info("Bind this account and gold instrument in Automation center before manual execution.")
     if config.get("enabled"):
         st.info("Stop automatic entries in Automation center before using a manual trade button.")
-    st.caption("A click refreshes the chart, news, and quote. Backend validation, daily budget, five-attempt limit, and duplicate protection are checked again before submission.")
-    if st.button(f"Submit {side} 0.01 lot · {broker.name} {broker.mode(account).upper()}",
-                 key="terminal_submit_order", type="primary", disabled=not qualifies or not bound or config.get("enabled")):
+    st.caption(f"A click refreshes the chart, news, and quote. Backend validation, daily budget, {config.get('max_entries', 5)}-attempt limit, and duplicate protection are checked again before submission.")
+    if st.button(f"Submit {side} {lots:g} lot · {broker.name} {broker.mode(account).upper()}",
+                 key="terminal_submit_order", type="primary",
+                 disabled=not qualifies or not bound or config.get("enabled") or not live_confirmed):
         try:
             with st.spinner("Rechecking the setup and broker quote before submission…"):
-                outcome = broker.auto.trade_row(identity, symbol, offset, side)
+                outcome = broker.auto.trade_row(identity, symbol, offset, side,
+                                                confirm_live=broker.mode(account) == "real")
             st.session_state.terminal_trade_outcome = {"symbol": symbol, **outcome}
         except broker.bridge.DemoError as exc:
             st.session_state.terminal_trade_outcome = {"symbol": symbol, "state": "blocked", "message": str(exc)}

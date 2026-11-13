@@ -8,6 +8,7 @@ from scalp_lab.paths import LIB_DIR as IC_DIR
 from scalp_lab_exness import mt5_demo as exness
 from scalp_lab_exness.gold_events import DB as EXNESS_EVENTS
 from scalp_lab_exness.paths import LIB_DIR as EXNESS_DIR
+from frontend.context import broker_for
 
 
 def fake_mt5(company, server, mode):
@@ -45,7 +46,10 @@ class BrokerSelectionTests(unittest.TestCase):
         with self.assertRaises(ic.DemoError):
             ic.checked_account(ic_mt5)
         exness_mt5.account_info.return_value.trade_mode = 2
-        self.assertEqual(exness.checked_account(exness_mt5, read_only=True).login, 123)
+        with self.assertRaises(exness.DemoError):
+            exness.checked_account(exness_mt5, read_only=True)
+        self.assertEqual(broker_for('Exness', 'real').bridge.checked_account(
+            exness_mt5, read_only=True).login, 123)
         with self.assertRaises(exness.DemoError):
             exness.checked_account(exness_mt5, expected=(999, 'Exness-Demo'))
 
@@ -53,6 +57,13 @@ class BrokerSelectionTests(unittest.TestCase):
         self.assertNotEqual(IC_DIR, EXNESS_DIR)
         self.assertEqual(EXNESS_EVENTS.parent, EXNESS_DIR)
         self.assertEqual(exness.LEDGER.parent, EXNESS_DIR)
+        for name in ('IC Markets', 'Exness'):
+            demo = broker_for(name)
+            live = broker_for(name, 'real')
+            self.assertNotEqual(demo.auto.CONFIG, live.auto.CONFIG)
+            self.assertNotEqual(demo.auto.JOURNAL, live.auto.JOURNAL)
+            self.assertNotEqual(demo.module('gold_events').DB,
+                                live.module('gold_events').DB)
 
 
 if __name__ == '__main__':

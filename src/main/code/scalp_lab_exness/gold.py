@@ -192,6 +192,7 @@ def snapshot(identity,symbol,offset,horizon=5,include_headlines=False,*,read_onl
     # Necessary affordability check only. Final execution also accounts for daily loss and exposures.
     from .auto_demo import settings,daily_budget
     budget_config={**settings(), 'identity':identity, 'symbols':[symbol], 'offset':offset}
+    lots=budget_config.get('lots',.01)
     try:
         budget=daily_budget(budget_config,account.equity,account.currency)
     except bridge.DemoError as exc:
@@ -200,12 +201,12 @@ def snapshot(identity,symbol,offset,horizon=5,include_headlines=False,*,read_onl
     risk=scenario.get('risk_amount')
     affordable=budget is not None and risk is not None and risk*1.2<=budget
     if budget is not None and not affordable:
-        blockers.append(f'Minimum approved size 0.01 lot exceeds the configured daily budget or its risk is unavailable (budget {budget:.2f} {account.currency}, including a 20% cost reserve).')
+        blockers.append(f'Selected size {lots:g} lot exceeds the configured daily budget or its risk is unavailable (budget {budget:.2f} {account.currency}, including a 20% cost reserve).')
     result['checks'] += [{'Check':'Spread ≤ 20% of M5 ATR','Passed':bool(spread<=.2*row.atr5)},
                          {'Check':'Quote within one M1 ATR of signal close','Passed':bool(abs((tick.ask+tick.bid)/2-row.close)<=row.atr)},
                          {'Check':'Current news agrees / neutral','Passed':news_reason is None},
                          {'Check':'Research permission','Passed':bool(valid)},
-                         {'Check':'0.01 lot fits configured daily budget before existing losses/exposure','Passed':bool(affordable)}]
+                          {'Check':f'{lots:g} lot fits configured daily budget before existing losses/exposure','Passed':bool(affordable)}]
     result['action']='BLOCKED' if blockers else side+' setup'
     result['reasons']=[f'{side}: {row.setup}; {row.regime}.']+blockers
     return result,{}
