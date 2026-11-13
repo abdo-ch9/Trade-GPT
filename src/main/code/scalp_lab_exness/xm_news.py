@@ -45,7 +45,7 @@ def configuration():
     key = setting('OPENAI_API_KEY')
     if key.startswith('YOUR_'):
         key = ''
-    model = (setting('EXNESS_OLLAMA_MODEL','qwen2.5:7b-instruct','XM_OLLAMA_MODEL')
+    model = (setting('EXNESS_OLLAMA_MODEL','qwen3:latest','XM_OLLAMA_MODEL')
              if provider=='ollama' else
              setting('EXNESS_NEWS_MODEL','gpt-4.1-mini','XM_NEWS_MODEL'))
     return {'provider':provider, 'key':key, 'model':model,
@@ -170,7 +170,7 @@ def interpret(symbol, articles, key, model, now, provider='openai', base_url='ht
         url = local_ollama_url(base_url)
         with INFERENCE_LOCK:
             response = requests.post(url+'/api/chat',json={
-                'model':model, 'stream':False, 'format':schema,
+                'model':model, 'stream':False, 'think':False, 'format':schema,
                 'messages':[{'role':'system','content':instructions},
                             {'role':'user','content':input_text}],
                 'options':{'temperature':0,'num_ctx':8192,'num_predict':700},

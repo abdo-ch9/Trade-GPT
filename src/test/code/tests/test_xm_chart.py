@@ -197,6 +197,7 @@ class NewsTests(unittest.TestCase):
         self.assertNotIn('headers',post.call_args.kwargs)
         self.assertEqual(post.call_args.kwargs['json']['format']['type'],'object')
         self.assertFalse(post.call_args.kwargs['json']['stream'])
+        self.assertFalse(post.call_args.kwargs['json']['think'])
 
     def test_ollama_rejects_partial_response_and_remote_url(self):
         response=Mock()
