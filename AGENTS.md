@@ -2,19 +2,19 @@
 
 ## Project Structure & Module Organization
 
-`scalp_lab/` contains the research engines, market-data feeds, IC Markets/MT5 integration, decision history, and automation code. `dashboard.py` is the active GOLD/XAUUSD Streamlit interface; `dashboard_legacy.py` preserves the older multi-asset interface. `tests/test_*.py` covers the corresponding modules. `README.md` explains setup, while `GOLD_RESEARCH.md` records the active strategy, validation results, and limitations. `data/`, `demo_data/`, `auto_live/`, and `results_*/` are local, ignored research outputs.
+`src/main/code/scalp_lab/` contains the research engines, market-data feeds, IC Markets/MT5 integration, decision history, and automation code. `src/main/code/dashboard.py` is the active GOLD/XAUUSD Streamlit interface; `src/main/code/dashboard_legacy.py` preserves the older multi-asset interface. `src/test/code/tests/test_*.py` covers the corresponding modules. `README.md` explains setup, while `GOLD_RESEARCH.md` records the active strategy, validation results, and limitations. Root `.venv` and `.env` hold the ignored local environment and credentials; `lib/` holds ignored journals, locks, history, and research output.
 
 ## Build, Test, and Development Commands
 
-From PowerShell, create a virtual environment and install core dependencies:
+On Windows, install and launch with the checked-in wrappers:
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+.\install.cmd
+.\run.cmd
+.\.venv\Scripts\python.exe -m unittest discover -s src/test/code/tests -v
 ```
 
-The last command runs the full test suite. Run the dashboard with `.\.venv\Scripts\python.exe -m streamlit run dashboard.py`. MT5 support is Windows-only and installed separately with `.\.venv\Scripts\python.exe -m pip install -r requirements-mt5.txt`.
+The PowerShell implementations are `install.ps1` and `run.ps1`; `run.cmd -Check` performs a preflight without launching. The last command above runs the full test suite. `install.cmd -ResearchOnly` skips the Windows-only MT5 connector for legacy CLI research.
 
 ## Coding Style & Naming Conventions
 

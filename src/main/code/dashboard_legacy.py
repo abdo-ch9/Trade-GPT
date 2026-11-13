@@ -4,6 +4,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 from scalp_lab.auto_update import add_symbol, ensure_running, read_json, symbols_for
+from scalp_lab.paths import LIB_DIR
 
 st.set_page_config(page_title="ScalpLab — research only", layout="wide")
 st.markdown("""<style>
@@ -16,7 +17,7 @@ button:active {transform:translateY(1px);}
 </style>""",unsafe_allow_html=True)
 st.title("Asset signal desk")
 st.warning("Research and optional automatic IC Markets demo trading. Model scores are uncalibrated. Real-money accounts are blocked.")
-base_dir=Path(__file__).resolve().parent
+base_dir=LIB_DIR
 def render_planner(bars, reference, reference_time, symbol, settings, report):
     st.subheader("Paper trade planner")
     st.caption("Scenario preview only. These levels do not turn WAIT into a trade recommendation.")
@@ -217,7 +218,7 @@ def asset_workspace():
             from datetime import date, timedelta
             end=date.today()
             start=end-timedelta(days=180)
-            st.code(f"python -m scalp_lab fetch --ticker {symbol} --start {start} --end {end} --feed iex --dir data\npython -m scalp_lab backtest --symbol {symbol} --bars data/{symbol}_bars.csv --news data/{symbol}_news.csv --out results_{symbol}",language="powershell")
+            st.code(f"python -m scalp_lab fetch --ticker {symbol} --start {start} --end {end} --feed iex --dir lib/data\npython -m scalp_lab backtest --symbol {symbol} --bars lib/data/{symbol}_bars.csv --news lib/data/{symbol}_news.csv --out lib/results_{symbol}",language="powershell")
             st.caption("Selecting a custom ticker adds it to automatic background updates. Data updates continue while the computer and updater are running, even after closing the browser tab. DEMO stays synthetic.")
     with st.expander("Historical model results and validation", expanded=False):
         st.subheader("Historical model results")

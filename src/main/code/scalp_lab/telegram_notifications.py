@@ -15,12 +15,13 @@ from dotenv import dotenv_values
 from .gold_events import DB
 from .gold_storage import write_json
 
-ROOT = Path(__file__).resolve().parents[1]
+from .paths import LIB_DIR, ENV_FILE
+ROOT = LIB_DIR
 STATE = ROOT / 'telegram_notifications.json'
 
 
 def configuration():
-    local = dotenv_values(ROOT / '.env')
+    local = dotenv_values(ENV_FILE)
     return {name: (os.getenv(name) or local.get(name) or '').strip()
             for name in ('TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID')}
 

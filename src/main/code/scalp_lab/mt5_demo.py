@@ -10,7 +10,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 LOCK=threading.RLock()
-LEDGER=Path(__file__).resolve().parents[1]/"demo_orders.sqlite3"
+from .paths import LIB_DIR
+LEDGER=LIB_DIR/"demo_orders.sqlite3"
 BROKER_NAME="IC Markets"
 # MQL5 symbol bit flags (not exported by the Python extension).
 SYMBOL_ORDER_MARKET, SYMBOL_ORDER_SL, SYMBOL_ORDER_TP = 1, 16, 32

@@ -5,7 +5,8 @@ import time
 from contextlib import closing
 from pathlib import Path
 
-DB=Path(__file__).resolve().parents[1]/'gold_events.sqlite3'
+from .paths import LIB_DIR
+DB=LIB_DIR/'gold_events.sqlite3'
 
 
 def _connect(db_path,timeout=10):

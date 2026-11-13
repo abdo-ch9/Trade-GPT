@@ -7,7 +7,8 @@ import pandas as pd
 
 from .gold_storage import write_json
 
-ROOT = Path(__file__).resolve().parents[1]
+from .paths import LIB_DIR
+ROOT = LIB_DIR
 PATH = ROOT / 'gold_dashboard_snapshot.json'
 
 

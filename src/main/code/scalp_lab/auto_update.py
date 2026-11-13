@@ -13,7 +13,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 DEFAULT_SYMBOLS = ("SPY", "QQQ", "AAPL", "MSFT", "NVDA", "TSLA")
-ROOT = Path(__file__).resolve().parents[1]
+from .paths import LIB_DIR, PROJECT_ROOT, ENV_FILE
+ROOT = LIB_DIR
 
 
 def utcnow():
@@ -92,7 +93,7 @@ def ensure_running(root=ROOT):
     with open(root/"auto_live"/"updater.log", "a", encoding="utf-8") as log:
         subprocess.Popen(
             [sys.executable, "-u", "-m", "scalp_lab.auto_update", "--root", str(root)],
-            cwd=root, stdout=log, stderr=log, stdin=subprocess.DEVNULL,
+            cwd=PROJECT_ROOT, stdout=log, stderr=log, stdin=subprocess.DEVNULL,
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
             start_new_session=os.name != "nt", env=env,
         )
@@ -228,7 +229,7 @@ def run(root=ROOT, once=False):
     handle = acquire_lock(root)
     if handle is None:
         return
-    load_dotenv(root/".env", override=True)
+    load_dotenv(ENV_FILE, override=True)
     feed = os.getenv("ALPACA_DATA_FEED", "iex")
     state = {"started_at": utcnow(), "pid": os.getpid(), "feed": feed, "assets": {}}
     futures, next_history = {}, {}

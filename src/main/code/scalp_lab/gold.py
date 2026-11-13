@@ -13,7 +13,8 @@ from .gold_exits import EXIT_POLICY, HOLD_BARS
 ENGINE='gold-structure-v2'
 # Last completed bar of the five-minute study already inspected. That sample cannot authorize entries.
 PUBLISHED_THROUGH=1793887020.0
-ROOT=Path(__file__).resolve().parents[1]
+from .paths import LIB_DIR
+ROOT=LIB_DIR
 REPORT=ROOT/'gold_validation.json'
 SYMBOLS={'GOLD','XAUUSD'}
 

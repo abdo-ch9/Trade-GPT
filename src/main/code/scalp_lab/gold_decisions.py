@@ -6,7 +6,8 @@ from contextlib import closing
 from datetime import datetime,timezone
 from pathlib import Path
 
-DB=Path(__file__).resolve().parents[1]/'gold_decisions.sqlite3'
+from .paths import LIB_DIR
+DB=LIB_DIR/'gold_decisions.sqlite3'
 
 
 def save(identity,symbol,result,db_path=DB,outcome=None):

@@ -6,8 +6,9 @@ from pathlib import Path
 import pandas as pd
 import requests
 from dotenv import load_dotenv
+from .paths import ENV_FILE
 
-load_dotenv()
+load_dotenv(ENV_FILE)
 BASE = "https://data.alpaca.markets"
 
 

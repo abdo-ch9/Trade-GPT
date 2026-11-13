@@ -14,7 +14,8 @@ import xml.etree.ElementTree as ET
 import requests
 from dotenv import dotenv_values
 
-ROOT = Path(__file__).resolve().parents[1]
+from .paths import LIB_DIR, ENV_FILE
+ROOT = LIB_DIR
 CACHE = {}
 LOCK = threading.Lock()
 INFERENCE_LOCK = threading.Lock()
@@ -30,7 +31,7 @@ CURRENCIES = {'EUR':'euro', 'USD':'US dollar', 'GBP':'British pound',
 
 
 def configuration():
-    local = dotenv_values(ROOT / '.env')
+    local = dotenv_values(ENV_FILE)
     def setting(name, default='', legacy_name=None):
         return (os.getenv(name) or local.get(name) or
                 (os.getenv(legacy_name) or local.get(legacy_name) if legacy_name else '') or

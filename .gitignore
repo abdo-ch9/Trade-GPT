@@ -1,9 +1,11 @@
 # Local credentials and environments
+lib/
 
 .env
 .env.*
 !.env.example
 .venv/
+.venv-*/
 venv/
 
 # Editor and IDE settings
@@ -18,6 +20,12 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .test_tmp/
+.runtime_review/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
 *.lock
 
 # Local market data and generated research output
@@ -36,8 +44,11 @@ gold_migration_settings.json
 # Broker sessions, order journals, and worker output
 *.sqlite3
 *.sqlite3-*
+*.db
+*.db-*
 xm_auto_demo*.json
 gold_worker_status.json
+.streamlit/
 *.log
 
 gold_dashboard_snapshot.json
