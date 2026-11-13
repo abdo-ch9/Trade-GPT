@@ -71,14 +71,23 @@ def manage(identity,db_path,now=None):
             if not order:
                 record('error','Filled entry has no broker order ID; timed exit cannot identify it.',key=token+':missing-order')
                 continue
-            entry_deals=mt5.history_deals_get(ticket=order)
-            if entry_deals is None or not entry_deals:
+            entry_orders=mt5.history_orders_get(ticket=order)
+            if entry_orders is None or not entry_orders:
                 continue
-            ids={d.position_id for d in entry_deals if d.symbol==context['symbol'] and d.magic==context['magic']}
+            ids={o.position_id for o in entry_orders
+                 if o.ticket==order and o.symbol==context['symbol']
+                 and o.magic==context['magic'] and o.position_id}
             if len(ids)!=1:
-                record('error','Entry history does not identify exactly one owned position.',key=token+':identity')
+                record('error','Entry order history does not identify exactly one owned position.',key=token+':identity')
                 continue
             position_id=next(iter(ids))
+            entry_deals=mt5.history_deals_get(position=position_id)
+            if entry_deals is None or not any(
+                d.order==order and d.position_id==position_id
+                and d.symbol==context['symbol'] and d.magic==context['magic']
+                and d.entry in (mt5.DEAL_ENTRY_IN,mt5.DEAL_ENTRY_INOUT)
+                for d in entry_deals):
+                continue
             positions=mt5.positions_get(symbol=context['symbol'])
             if positions is None:
                 continue

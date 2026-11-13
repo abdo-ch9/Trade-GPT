@@ -17,6 +17,8 @@ class AutomationControlTests(unittest.TestCase):
                 stack.enter_context(patch.object(engine, 'settings', return_value=config))
                 stack.enter_context(patch.object(engine, 'eligible', return_value=['XAUUSD']))
                 stack.enter_context(patch.object(engine, 'STATUS', {}))
+                status_file = stack.enter_context(patch.object(engine, 'STATUS_FILE', MagicMock()))
+                status_file.read_text.side_effect = FileNotFoundError()
                 news = stack.enter_context(patch(f'{package}.xm_news.connection_status',
                                                  return_value=(False, 'News unavailable.')))
                 validation = stack.enter_context(patch(f'{package}.gold.execution_validation',

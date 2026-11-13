@@ -290,6 +290,26 @@ def bind_stopped_session(identity, symbols, offset):
         return config
 
 
+def set_demo_research_consent(identity, symbols, offset, allowed):
+    """Change historical-validation consent for a stopped, bound demo session."""
+    with process_guard(), bridge.LOCK:
+        config = settings()
+        if config.get('enabled'):
+            raise bridge.DemoError('Stop automation before changing demo research consent.')
+        if (tuple(config.get('identity', ())) != tuple(identity)
+            or config.get('symbols') != list(symbols)
+            or config.get('offset') != offset
+            or config.get('engine') != ENGINE):
+            raise bridge.DemoError('Bind this demo account and gold instrument before changing research consent.')
+        bridge.checked_account(bridge.api(), identity)
+        config = {**config, 'allow_unvalidated_demo': allowed is True,
+                  'stop_reason': ('Demo research consent updated. Press Start to enable entries.'
+                                  if allowed is True else
+                                  'Demo research consent revoked. Entries remain stopped.')}
+        save(config)
+        return config
+
+
 
 
 

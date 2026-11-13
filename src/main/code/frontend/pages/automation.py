@@ -68,6 +68,29 @@ def render():
     if len(symbols) != 1:
         st.warning("Exactly one eligible 0.01-lot gold instrument is required.")
 
+    if not broker.is_exness and mode == "demo" and not config.get("enabled"):
+        if config.get("allow_unvalidated_demo") is True:
+            st.warning("Demo research consent is active. Historical validation is advisory for this demo account; news, risk, and exit checks still apply.")
+            if st.button("Revoke demo research consent", key="revoke_demo_research"):
+                try:
+                    auto.set_demo_research_consent(identity, symbols, offset, False)
+                    st.rerun()
+                except broker.bridge.DemoError as exc:
+                    st.error(str(exc))
+        elif not validated:
+            st.warning("This strategy failed historical validation. Demo research can still lose the entire demo balance.")
+            research_confirmed = st.checkbox(
+                "I understand the historical strategy test failed and want to allow unvalidated DEMO research.",
+                key="confirm_demo_research")
+            if st.button("Allow unvalidated DEMO research",
+                         disabled=not (research_confirmed and context_matches and len(symbols) == 1),
+                         key="allow_demo_research"):
+                try:
+                    auto.set_demo_research_consent(identity, symbols, offset, True)
+                    st.rerun()
+                except broker.bridge.DemoError as exc:
+                    st.error(str(exc))
+
     components.section("Execution permission")
     confirmation = st.checkbox(
         f"I understand Start can submit {mode.upper()} market orders on {broker.name} after all backend checks pass.",

@@ -1,4 +1,5 @@
 import tempfile
+from contextlib import nullcontext
 
 import time
 
@@ -23,6 +24,23 @@ from scalp_lab.mt5_demo import DemoError
 
 
 class AutoDemoTests(unittest.TestCase):
+
+    def test_demo_research_consent_requires_stopped_bound_session(self):
+        identity = (123, 'ICMarketsSC-Demo')
+        self.config['enabled'] = False
+        with patch.object(auto, 'process_guard', return_value=nullcontext()), \
+             patch.object(auto.bridge, 'checked_account') as checked, \
+             patch.object(auto, 'save') as save:
+            result = auto.set_demo_research_consent(identity, ['GOLD'], 2, True)
+            self.assertTrue(result['allow_unvalidated_demo'])
+            checked.assert_called_once()
+            save.assert_called_once()
+            with self.assertRaises(DemoError):
+                auto.set_demo_research_consent(identity, ['XAUUSD'], 2, True)
+            self.config['enabled'] = True
+            with self.assertRaises(DemoError):
+                auto.set_demo_research_consent(identity, ['GOLD'], 2, True)
+            self.assertEqual(save.call_count, 1)
 
     def setUp(self):
 

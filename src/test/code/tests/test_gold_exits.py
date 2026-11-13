@@ -32,6 +32,7 @@ class TimedExitTests(unittest.TestCase):
                       ORDER_TIME_GTC=0,TRADE_RETCODE_DONE=10009,DEAL_ENTRY_IN=0,
                       DEAL_ENTRY_OUT=1,DEAL_ENTRY_INOUT=2,DEAL_ENTRY_OUT_BY=3)
         self.mt5.positions_get.return_value=[self.p]
+        self.mt5.history_orders_get.return_value=[NS(ticket=12,position_id=100,symbol='GOLD',magic=auto.MAGIC)]
         self.mt5.history_deals_get.return_value=[self.deal]
         self.mt5.order_check.return_value=NS(retcode=0,comment='OK')
         self.mt5.order_send.return_value=NS(retcode=10009,comment='Done',price=2000)
@@ -53,6 +54,8 @@ class TimedExitTests(unittest.TestCase):
         self.assertEqual(r['position'],99)
         self.assertEqual(r['type'],1)
         self.assertEqual(r['volume'],.01)
+        self.mt5.history_orders_get.assert_called_with(ticket=12)
+        self.assertTrue(all('position' in call.kwargs for call in self.mt5.history_deals_get.call_args_list))
 
     def test_early_position_is_not_closed(self):
         exits.manage(self.identity,self.db,self.now-10)
@@ -92,14 +95,15 @@ class TimedExitTests(unittest.TestCase):
 
     def test_other_entry_in_netting_position_is_not_closed(self):
         other=NS(**vars(self.deal));other.order=55
-        self.mt5.history_deals_get.side_effect=lambda **kw:[self.deal] if 'ticket' in kw else [self.deal,other]
+        self.mt5.history_deals_get.return_value=[self.deal,other]
         exits.manage(self.identity,self.db,self.now)
         self.mt5.order_send.assert_not_called()
 
     def test_broker_closed_position_records_costs_without_send(self):
         self.mt5.positions_get.return_value=[]
-        closed=NS(entry=1,profit=5,commission=-.1,swap=0,fee=0)
-        self.mt5.history_deals_get.side_effect=lambda **kw:[self.deal] if 'ticket' in kw else [closed]
+        closed=NS(entry=1,order=13,position_id=100,symbol='GOLD',magic=auto.MAGIC,
+                  profit=5,commission=-.1,swap=0,fee=0)
+        self.mt5.history_deals_get.return_value=[self.deal,closed]
         exits.manage(self.identity,self.db,self.now)
         self.mt5.order_send.assert_not_called()
         with closing(sqlite3.connect(self.db)) as db:
