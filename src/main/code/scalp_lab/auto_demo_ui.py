@@ -66,18 +66,24 @@ def render(identity,instruments,offset):
     context_changed = (tuple(config.get('identity', [])) != tuple(identity)
                        or config.get('symbols') != symbols or config.get('offset') != offset)
     if context_changed and not config.get('enabled'):
-        st.info('Saved automation belongs to a different account, instrument or timestamp convention. Update the stopped session before starting.')
+        if config.get('identity'):
+            st.info('Saved automation belongs to a different account, instrument or timestamp convention. Update the stopped session before starting.')
+        else:
+            st.info('No automation session is saved. Bind this demo account and gold instrument before starting entries.')
         if st.button('Use connected demo account and gold instrument', key='bind_gold_demo', disabled=len(symbols) != 1):
             auto.bind_stopped_session(identity, symbols, offset)
             st.rerun()
     from .gold import execution_validation
-    trade_validated=bool(symbols) and all(execution_validation(s)[0] for s in symbols)
+    validation_results=[execution_validation(s) for s in symbols]
+    trade_validated=bool(validation_results) and all(result[0] for result in validation_results)
     if auto.settings().get('allow_unvalidated_demo') is True:
         st.warning('User-approved demo research: historical tests are advisory. New bot positions use broker SL/TP and a 15-minute candle-based exit deadline. News and account risk limits still apply.')
     if auto.settings().get('exclude_tesla_stop_risk') is True:
         st.warning('Tesla is excluded from open-position stop-risk estimates at your request. Its account-equity gains/losses still count. The daily budget does not cover Tesla’s additional loss to its stop.')
     if not trade_validated:
-        st.info('Research mode: gold analysis continues below the chart. Automatic trading is unavailable until historical evidence and matching live exit management are validated.')
+        reason=next((message for passed,message in validation_results if not passed),
+                    'No eligible gold instrument is available for automation.')
+        st.info('Automatic entries are blocked: '+reason)
     budget_label=(f"${auto.settings()['daily_loss_usd']:.2f} daily loss budget" if auto.settings().get('daily_loss_usd') is not None else '1% daily equity budget')
     if auto.settings().get('daily_loss_eur') is not None:
         budget_label = f"€{auto.settings()['daily_loss_eur']:.2f} daily loss budget (converted using fresh EURUSD bid for USD accounts)"
@@ -96,13 +102,19 @@ def render(identity,instruments,offset):
     remaining=config.get('expires',0)-time.time()
     if config.get('enabled') and remaining>0:
         st.caption(f'Session expires in {remaining/3600:.1f}h ({datetime.fromtimestamp(config["expires"], timezone.utc).strftime("%H:%M UTC")})')
-    with st.expander('Approved gold instrument'):
+    with st.expander('Approved gold instrument' if config.get('identity') else 'Eligible gold instrument (not bound)'):
         st.write(', '.join(config.get('symbols',symbols)))
     from .gold_worker import ensure_running,status as worker_status,healthy as worker_healthy
     ensure_running()
     heartbeat=worker_status()
     healthy=worker_healthy(heartbeat)
-    st.caption('Background worker: '+('connected' if healthy else 'starting / unavailable'))
+    worker_label=('connected' if healthy else
+                  'connected; waiting for an account session'
+                  if not config.get('identity') and heartbeat.get('scanner_alive')
+                  and not heartbeat.get('exit_error')
+                  and 0 <= time.time()-heartbeat.get('heartbeat',0) < 15 else
+                  'starting / unavailable')
+    st.caption('Background worker: '+worker_label)
     st.caption('Scanner: '+heartbeat.get('scanner','not started'))
     if config.get('enabled') and not heartbeat.get('scanner_alive',False):
         st.error('The scanning thread is not running. New signals are unavailable; check persistent events.')
