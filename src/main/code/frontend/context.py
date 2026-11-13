@@ -64,7 +64,7 @@ def clear_broker_state():
     """Drop account-scoped widgets when the broker changes, never broker records."""
     import streamlit as st
     for key in list(st.session_state):
-        if key.startswith(("gold_", "xm_", "terminal_", "confirm_")):
+        if key.startswith(("gold_", "xm_", "terminal_", "confirm_", "forecast_")):
             del st.session_state[key]
 
 

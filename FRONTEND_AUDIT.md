@@ -10,6 +10,7 @@ The redesign places presentation in `frontend/`. `context.py` owns broker select
 | M1 research chart, indicators, quote, proposed levels, manual execution | Trading terminal |
 | AI news, evidence, citations, rejection checks | AI market intelligence |
 | Historical evaluation, validation, research CSV and report | Strategy & backtesting |
+| Paper-only XAU/USD forecast artifacts and replay | Paper forecasts |
 | Budget, attempts, reserved stop risk, broker constraints | Risk management |
 | Worker, scanner, exit watchdog, entry start/stop, Telegram status | Automation center |
 | MT5 positions/orders, bot journal, saved decisions, events, downloads | Trade history & analytics |

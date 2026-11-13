@@ -4,6 +4,8 @@ ScalpLab is a local Python gold research app for IC Markets and Exness. The acti
 
 The initial gold strategy failed its historical cost test, so normal validation blocks automatic entries. An explicit demo research override exists, but it does not establish profitability. Exness real-money automation requires its own validation gates. See [GOLD_RESEARCH.md](GOLD_RESEARCH.md) for IC Markets and [GOLD_RESEARCH_EXNESS.md](GOLD_RESEARCH_EXNESS.md) for Exness.
 
+The merged Exness backend also permits an explicit real-account override for the exact failed-holdout gate. The Automation center offers it only when the broker, account, instrument, and news gates are ready, and requires separate real-money and failed-holdout acknowledgements. Other backend validation and risk checks still apply. This override does not make the strategy profitable or validated.
+
 ## Software to install
 
 - **Windows 10/11 and 64-bit Python 3.11–3.14.** Python 3.15 does not currently have a compatible MetaTrader5 package. Install Python from [python.org](https://www.python.org/downloads/windows/) with the Python launcher (`py`) enabled. Git is needed only if you are cloning the repository.
@@ -46,7 +48,7 @@ For historical Alpaca stock data, fill `ALPACA_API_KEY` and `ALPACA_API_SECRET` 
 
 ## Terminal pages and architecture
 
-The sidebar provides **Dashboard** (account and health), **Trading terminal** (chart and explicit manual controls), **AI market intelligence** (technical and sourced news evidence), **Automation center** (entry scanner and watchdog), **Risk management** (read-only limits and exposure), **Settings** (non-secret configuration), **Strategy & backtesting** (historical evaluation), and **Trade history & analytics** (MT5 orders, fills, saved signals, events, and downloads). All pages have disconnected and empty states. The sidebar can be collapsed with Streamlit's native control.
+The sidebar provides **Dashboard** (account and health), **Trading terminal** (chart and explicit manual controls), **AI market intelligence** (technical and sourced news evidence), **Automation center** (entry scanner and watchdog), **Risk management** (read-only limits and exposure), **Settings** (non-secret configuration), **Strategy & backtesting** (historical evaluation), **Paper forecasts** (read-only model research), and **Trade history & analytics** (MT5 orders, fills, saved signals, events, and downloads). The sidebar can be collapsed with Streamlit's native control.
 
 `src/main/code/frontend/app.py` registers native Streamlit pages. `frontend/context.py` keeps the selected broker and account identity in session state. `frontend/services.py` calls the existing broker modules for read-only snapshots, reports, and history; its research snapshot cache expires after ten seconds and daily deal P&L after fifteen seconds. Historical evaluation runs on a background thread. `frontend/components.py` and `frontend/styles.py` define reusable display elements and the dark theme. Each `frontend/pages/` module owns one workspace. Manual orders continue through the existing broker UI helpers and backend risk checks. Page rendering and navigation never submit an order. See [FRONTEND_AUDIT.md](FRONTEND_AUDIT.md) for the former-to-current feature map.
 
@@ -105,3 +107,34 @@ Open trades and signals are not counted as completed trades. Download the JSON
 report to retain the evidence from each test period. These diagnostics do not
 validate profitability or authorize live trading; the demo-only broker block stays
 in place. Worker startup retries transient MT5 initialization failures three times.
+
+## XAU/USD paper forecasts
+
+Select **Paper forecasts** in the Research section of the sidebar, choose the broker and connect
+MT5 to observe completed candles. This workspace reads market data and produces
+paper signals. It has no order submission path. The broker dashboard remains
+available separately.
+
+Train offline from a saved MT5 M1 CSV. In PowerShell, from the repository root:
+
+```powershell
+$env:PYTHONPATH='src/main/code'
+$env:OMP_NUM_THREADS='2'
+.\.venv\Scripts\python.exe -m scalp_lab.forecast train lib/exness/gold_history.csv lib/exness/forecast-XAUUSDm.joblib --point .001
+.\.venv\Scripts\python.exe -m scalp_lab.forecast benchmark lib/exness/gold_history.csv lib/exness/forecast-XAUUSDm.joblib --point .001
+```
+
+The CSV columns are `time,open,high,low,close,tick_volume,spread`. Use the broker
+instrument's exact point size and `--offset` if the source timestamps use server
+time. Set `--broker` and `--symbol` for the exact source instrument. Existing
+historical exports are reused directly. Keep the source CSV immutable and retain
+its SHA-256 with the report. The worker caches recent completed candles in memory
+and requests a bounded recent tail from MT5. Artifacts are Python joblib files.
+Load only artifacts you generated or trust. Restart the dashboard after replacing
+an artifact so active fragments pick it up.
+
+Optional comparison models and pytest can be installed with
+`python -m pip install -r requirements-research.txt`. The CLI reports unavailable
+boosting models explicitly. The forecast tests run with pytest or the standard
+unittest suite. See [the evaluation and benchmark](reports/final_summary.md) for
+the archive results and limits.

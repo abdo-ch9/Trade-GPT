@@ -10,10 +10,25 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "main" / "code"))
 
 from frontend import services
+from frontend.pages.automation import _can_override_holdout
 from frontend.pages.trading import _display_bars
 
 
 class FrontendDisplayTests(unittest.TestCase):
+    def test_live_holdout_override_requires_exact_failure_and_ready_session(self):
+        broker = SimpleNamespace(is_exness=True,
+                                 gold=SimpleNamespace(HOLDOUT_FAILURE="Holdout failed"))
+        args = (broker, "real", False, "Holdout failed", True, True, ["XAUUSD"], False)
+        self.assertTrue(_can_override_holdout(*args))
+        for change in ({"mode": "demo"}, {"validated": True},
+                       {"reason": "Missing exit checks"},
+                       {"news_ready": False}, {"context_matches": False},
+                       {"symbols": []}, {"enabled": True}):
+            values = dict(zip(("broker", "mode", "validated", "reason", "news_ready",
+                               "context_matches", "symbols", "enabled"), args))
+            values.update(change)
+            self.assertFalse(_can_override_holdout(**values), change)
+
     def test_m5_uses_only_complete_candle_groups(self):
         times = list(range(0, 5 * 60, 60)) + list(range(5 * 60, 8 * 60, 60))
         frame = pd.DataFrame({

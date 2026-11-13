@@ -3,7 +3,7 @@ import streamlit as st
 
 from . import styles, components
 from .context import BROKERS, clear_broker_state, connection, selected, selected_instrument
-from .pages import automation, backtesting, dashboard, history, intelligence, risk, settings, trading
+from .pages import automation, backtesting, dashboard, forecast, history, intelligence, risk, settings, trading
 
 
 def main():
@@ -59,6 +59,7 @@ def main():
         ],
         "Research": [
             st.Page(backtesting.render, title="Strategy & backtesting", icon=":material/query_stats:", url_path="backtesting"),
+            st.Page(forecast.render, title="Paper forecasts", icon=":material/insights:", url_path="forecasts"),
             st.Page(history.render, title="Trade history & analytics", icon=":material/history:", url_path="history"),
         ],
     }

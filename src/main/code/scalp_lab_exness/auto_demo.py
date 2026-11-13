@@ -312,10 +312,10 @@ def arm(identity, symbols, offset, *, override_live_validation=False):
         live = account.trade_mode == mt5.ACCOUNT_TRADE_MODE_REAL
         if override_live_validation and not live:
             raise bridge.DemoError('The live validation override requires an Exness real account.')
-        if live and not override_live_validation:
-            from .gold import validation
+        if live:
+            from .gold import HOLDOUT_FAILURE, validation
             valid, reason = validation(symbols[0], broker_exit=True)
-            if not valid:
+            if not valid and not (override_live_validation and reason == HOLDOUT_FAILURE):
                 raise bridge.DemoError(reason)
         from .gold_exits import HOLD_BARS
 
@@ -1043,9 +1043,21 @@ def render(identity,instruments,offset,*,mode='demo'):
 
             st.rerun()
 
-    from .gold import execution_validation
+    from .gold import HOLDOUT_FAILURE, execution_validation
 
-    trade_validated=bool(symbols) and all(execution_validation(s,demo=mode=='demo')[0] for s in symbols)
+    start_blockers = []
+    offer_holdout_override = False
+    if not news_connected:
+        start_blockers.append(news_connection_reason)
+    if len(symbols) != 1:
+        start_blockers.append('Choose exactly one verified gold instrument that supports 0.01 lot.')
+    elif context_changed:
+        start_blockers.append(f'Use the connected {mode} account and gold instrument before starting.')
+    else:
+        validated, reason = execution_validation(symbols[0], config, demo=mode == 'demo', identity=identity)
+        if not validated:
+            offer_holdout_override = mode == 'real' and reason == HOLDOUT_FAILURE and not start_blockers
+            start_blockers.append(reason)
     if mode=='demo' and settings().get('allow_unvalidated_demo') is True:
         st.warning('User-approved demo research: historical tests are advisory. New bot positions use broker SL/TP with no timed close. News and account risk limits still apply.')
 
@@ -1054,9 +1066,6 @@ def render(identity,instruments,offset,*,mode='demo'):
 
     if mode=='real' and config.get('allow_unvalidated_live') is True and config.get('enabled'):
         st.warning('Historical validation is overridden for the active real-money automation session.')
-    elif not trade_validated:
-
-        st.info('Research mode: gold analysis continues below the chart. Automatic trading is unavailable until historical evidence and matching live exit management are validated.')
 
     budget_label=(f"${settings()['daily_loss_usd']:.2f} daily loss budget" if settings().get('daily_loss_usd') is not None else '1% daily equity budget')
 
@@ -1071,12 +1080,33 @@ def render(identity,instruments,offset,*,mode='demo'):
 
     left,right=st.columns(2)
 
-    if left.button(f'Start automatic {mode.upper()} trading',disabled=config.get('enabled',False) or not news_connected or not trade_validated,key='start_auto_demo'):
-        arm(identity,symbols,offset)
+    start_requested = left.button(f'Start automatic {mode.upper()} trading', disabled=config.get('enabled', False), key='start_auto_demo')
+    override_requested = False
+    if offer_holdout_override and not config.get('enabled'):
+        override_requested = left.button(
+            'Start REAL trading despite failed holdout',
+            key='start_real_holdout_override',
+            help='Uses real funds and bypasses the failed holdout for this automation session.',
+        )
+    if start_requested and start_blockers:
+        st.warning(' '.join(start_blockers))
+    if override_requested or (start_requested and not start_blockers):
+        try:
+            if override_requested:
+                arm(identity, symbols, offset, override_live_validation=True)
+            else:
+                arm(identity, symbols, offset)
+        except bridge.DemoError as exc:
+            st.error(str(exc))
+        else:
+            st.rerun()
 
     if right.button('Stop automatic trading',key='stop_auto_demo'):
 
         stop()
+
+    if start_blockers and not config.get('enabled'):
+        st.caption('Start requirements: ' + ' '.join(start_blockers))
 
     config=settings()
 

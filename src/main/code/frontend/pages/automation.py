@@ -6,6 +6,14 @@ from frontend import components, services
 from .common import page_state
 
 
+def _can_override_holdout(broker, mode, validated, reason, news_ready,
+                          context_matches, symbols, enabled):
+    """Expose the backend's live override only for its exact holdout failure."""
+    return (broker.is_exness and mode == "real" and not validated
+            and reason == broker.gold.HOLDOUT_FAILURE and news_ready
+            and context_matches and len(symbols) == 1 and not enabled)
+
+
 def render():
     components.heading("Control / bot", "Automation center",
                        "Manage entry scanning while preserving monitoring of existing positions.")
@@ -53,9 +61,9 @@ def render():
     (st.success if news_ready else st.warning)("News service: " + news_reason)
     if broker.is_exness:
         validated, validation_reason = broker.gold.execution_validation(
-            instrument.name, demo=mode == "demo")
+            instrument.name, config, demo=mode == "demo", identity=identity)
     else:
-        validated, validation_reason = broker.gold.execution_validation(instrument.name)
+        validated, validation_reason = broker.gold.execution_validation(instrument.name, config)
     (st.success if validated else st.warning)("Strategy gate: " + validation_reason)
     if len(symbols) != 1:
         st.warning("Exactly one eligible 0.01-lot gold instrument is required.")
@@ -65,7 +73,7 @@ def render():
         f"I understand Start can submit {mode.upper()} market orders on {broker.name} after all backend checks pass.",
         key="confirm_auto_start")
     if mode == "real":
-        st.error("REAL account: orders use real funds. Historical validation and forward review still apply.")
+        st.error("REAL account: automatic orders use real funds. Review the strategy gate before starting.")
     start_disabled = (config.get("enabled") or not context_matches or not news_ready
                       or not validated or len(symbols) != 1 or not confirmation)
     start_col, stop_col = st.columns(2)
@@ -76,6 +84,22 @@ def render():
             st.rerun()
         except broker.bridge.DemoError as exc:
             st.error(str(exc))
+    can_override_holdout = _can_override_holdout(
+        broker, mode, validated, validation_reason, news_ready,
+        context_matches, symbols, config.get("enabled"))
+    if can_override_holdout:
+        st.warning("The historical holdout failed. The broker backend permits an explicit, session-only override for this exact gate.")
+        override_confirmed = st.checkbox(
+            "I understand this REAL session can trade despite the failed historical holdout.",
+            key="confirm_real_holdout_override")
+        if st.button("Start REAL trading despite failed holdout",
+                     disabled=not (confirmation and override_confirmed),
+                     key="start_real_holdout_override"):
+            try:
+                auto.arm(identity, symbols, offset, override_live_validation=True)
+                st.rerun()
+            except broker.bridge.DemoError as exc:
+                st.error(str(exc))
     if stop_col.button("Stop new entries", disabled=not config.get("enabled"),
                        use_container_width=True):
         auto.stop()
