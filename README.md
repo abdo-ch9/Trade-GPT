@@ -6,7 +6,7 @@ The initial gold strategy failed its historical cost test, so normal validation 
 
 ## Software to install
 
-- **Windows 10/11 and Python 3.11 or newer.** Install Python from [python.org](https://www.python.org/downloads/windows/) with the Python launcher (`py`) enabled. Git is needed only if you are cloning the repository.
+- **Windows 10/11 and 64-bit Python 3.11–3.14.** Python 3.15 does not currently have a compatible MetaTrader5 package. Install Python from [python.org](https://www.python.org/downloads/windows/) with the Python launcher (`py`) enabled. Git is needed only if you are cloning the repository.
 - **IC Markets MetaTrader 5 desktop terminal and an IC Markets demo account** for the active gold dashboard. Install MT5 from IC Markets, sign in locally, and keep the terminal open. The Python connector does not accept a live account. You can run unit tests and the legacy synthetic-data demo without MT5.
 - **One news provider** for gold decisions: [Ollama](https://ollama.com/download/windows) on the same computer, or an OpenAI API key. Ollama avoids a cloud key but requires the configured model to be installed. A missing news provider blocks news-gated entries.
 
@@ -15,11 +15,11 @@ The initial gold strategy failed its historical cost test, so normal validation 
 Open PowerShell in the repository root:
 
 ```powershell
-py -3 -m venv .venv
+py -3.11 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe -m pip install -r requirements-mt5.txt
-Copy-Item .env.example .env
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 ```
 
 Edit `.env` for your news provider. For local Ollama, set `IC_MARKETS_NEWS_PROVIDER=ollama`, run `ollama pull qwen2.5:7b-instruct`, and start Ollama. For cloud news, set `IC_MARKETS_NEWS_PROVIDER=openai` and provide your own `OPENAI_API_KEY`. Existing `XM_`-prefixed news settings remain supported as backward-compatible aliases. Do not commit `.env` or paste credentials into issues or logs.
