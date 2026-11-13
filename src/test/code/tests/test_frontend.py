@@ -6,16 +6,28 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
+import pyarrow as pa
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "main" / "code"))
 
-from frontend import services
+from frontend import components, services
 from frontend.pages.automation import _can_override_holdout
 from frontend.pages import automation
 from frontend.pages.trading import _display_bars
 
 
 class FrontendDisplayTests(unittest.TestCase):
+    def test_value_table_is_arrow_compatible_with_mixed_display_values(self):
+        rows = [{"Setting": "Automatic entries", "Value": "Stopped"},
+                {"Setting": "Maximum entry attempts", "Value": 5},
+                {"Setting": "Minimum volume", "Value": None}]
+        with patch.object(components.st, "dataframe") as dataframe:
+            components.value_table(rows)
+        display_rows = dataframe.call_args.args[0]
+        table = pa.Table.from_pandas(pd.DataFrame(display_rows), preserve_index=False)
+        self.assertEqual(table.column("Value").to_pylist(), ["Stopped", "5", "—"])
+        self.assertEqual(rows[1]["Value"], 5)
+
     def test_active_automation_page_saves_selected_trade_size(self):
         identity = (123, "Demo")
         instrument = SimpleNamespace(name="XAUUSD", volume_min=.01,

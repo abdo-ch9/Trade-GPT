@@ -13,6 +13,14 @@ from frontend import services
 from frontend import app
 
 
+class State(dict):
+    def __getattr__(self, name):
+        return self[name]
+
+    def __setattr__(self, name, value):
+        self[name] = value
+
+
 def terminal(broker, mode):
     company = "IC Markets Global" if broker == "IC Markets" else "Exness Technologies Ltd"
     server = "ICMarkets-Live" if broker == "IC Markets" else "Exness-MT5Real"
@@ -30,20 +38,45 @@ def terminal(broker, mode):
 
 class LiveRoutingTests(unittest.TestCase):
     def test_mode_change_is_reverted_while_automation_runs(self):
-        class State(dict):
-            def __getattr__(self, name):
-                return self[name]
-            def __setattr__(self, name, value):
-                self[name] = value
         state = State(active_broker="IC Markets", active_environment="DEMO",
-                      selected_broker="IC Markets", trading_environment="LIVE")
+                      selected_broker="Exness", trading_environment="DEMO")
         running = NS(auto=NS(settings=lambda: {"enabled": True}))
         with patch.object(app.st, "session_state", state), \
              patch.object(app, "broker_for", return_value=running), \
              patch.object(app, "clear_broker_state") as clear:
             app._on_context_change()
-        self.assertEqual(state["trading_environment"], "DEMO")
+        self.assertEqual(state["selected_broker"], "IC Markets")
         self.assertTrue(state["selection_blocked"])
+        clear.assert_not_called()
+
+    def test_switching_demo_to_live_stops_demo_entries_without_starting_live(self):
+        state = State(active_broker="IC Markets", active_environment="DEMO",
+                      selected_broker="IC Markets", trading_environment="LIVE")
+        running = NS(auto=NS(settings=Mock(side_effect=[{"enabled": True}, {"enabled": False}]),
+                             stop=Mock(), arm=Mock()))
+        with patch.object(app.st, "session_state", state), \
+             patch.object(app, "broker_for", return_value=running) as broker_for, \
+             patch.object(app, "clear_broker_state") as clear:
+            app._on_context_change()
+        running.auto.stop.assert_called_once_with("Stopped when switching to LIVE")
+        running.auto.arm.assert_not_called()
+        broker_for.assert_called_once_with("IC Markets", "demo")
+        clear.assert_called_once()
+        self.assertEqual(state["active_environment"], "LIVE")
+        self.assertIn("does not start LIVE automation", state["selection_notice"])
+
+    def test_failed_demo_stop_prevents_switching_to_live(self):
+        state = State(active_broker="IC Markets", active_environment="DEMO",
+                      selected_broker="IC Markets", trading_environment="LIVE")
+        running = NS(auto=NS(settings=Mock(return_value={"enabled": True}),
+                             stop=Mock(side_effect=OSError("write failed"))))
+        with patch.object(app.st, "session_state", state), \
+             patch.object(app, "broker_for", return_value=running), \
+             patch.object(app, "clear_broker_state") as clear:
+            app._on_context_change()
+        self.assertEqual(state["trading_environment"], "DEMO")
+        self.assertEqual(state["active_environment"], "DEMO")
+        self.assertIn("Could not stop DEMO entries", state["selection_error"])
         clear.assert_not_called()
 
     def test_each_environment_rejects_opposite_account_mode(self):

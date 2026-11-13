@@ -48,6 +48,15 @@ def metrics(items):
             column.metric(label, value)
 
 
+def value_table(rows):
+    """Render read-only label/value rows with an Arrow-compatible Value column."""
+    display_rows = [
+        {**row, "Value": "—" if row["Value"] is None else str(row["Value"])}
+        for row in rows
+    ]
+    st.dataframe(display_rows, hide_index=True, width="stretch")
+
+
 def status_bar(broker, account, mode, worker):
     connected = account is not None
     fresh = 0 <= time.time() - worker.get("heartbeat", 0) < 15

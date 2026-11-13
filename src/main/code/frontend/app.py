@@ -7,7 +7,7 @@ from .pages import automation, backtesting, dashboard, forecast, history, intell
 
 
 def _on_context_change():
-    """Reject mode changes before Streamlit creates widgets for the next run."""
+    """Stop demo entries on a live switch; reject other active context changes."""
     previous_name = st.session_state.get("active_broker")
     previous_environment = st.session_state.get("active_environment", "DEMO")
     name = st.session_state.get("selected_broker", "IC Markets")
@@ -15,10 +15,25 @@ def _on_context_change():
     if previous_name and (previous_name, previous_environment) != (name, environment):
         previous = broker_for(previous_name, "real" if previous_environment == "LIVE" else "demo")
         if previous.auto.settings().get("enabled"):
-            st.session_state.selected_broker = previous_name
-            st.session_state.trading_environment = previous_environment
-            st.session_state.selection_blocked = True
-            return
+            switching_demo_to_live = (previous_environment == "DEMO" and environment == "LIVE"
+                                      and name == previous_name)
+            if switching_demo_to_live:
+                try:
+                    previous.auto.stop("Stopped when switching to LIVE")
+                    if previous.auto.settings().get("enabled"):
+                        raise RuntimeError("entry scanning is still enabled")
+                except Exception as exc:
+                    st.session_state.selection_error = f"Could not stop DEMO entries: {exc}"
+                    st.session_state.selected_broker = previous_name
+                    st.session_state.trading_environment = previous_environment
+                    return
+                st.session_state.selection_notice = (
+                    "DEMO entry scanning stopped. Switching modes does not start LIVE automation.")
+            else:
+                st.session_state.selected_broker = previous_name
+                st.session_state.trading_environment = previous_environment
+                st.session_state.selection_blocked = True
+                return
     if (previous_name, previous_environment) != (name, environment):
         clear_broker_state()
         st.session_state.active_broker = name
@@ -41,6 +56,10 @@ def main():
             _on_context_change()
         if st.session_state.pop("selection_blocked", False):
             st.warning("Stop automatic entries in Automation center before changing broker or environment.")
+        if error := st.session_state.pop("selection_error", None):
+            st.error(error)
+        if notice := st.session_state.pop("selection_notice", None):
+            st.info(notice)
         broker = selected()
         if not broker.is_exness:
             st.selectbox("MT5 server time", (2, 3, 0),

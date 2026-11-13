@@ -42,24 +42,24 @@ def render():
     left, right = st.columns(2, gap="large")
     with left:
         components.section("Read-only execution rules")
-        st.dataframe([
+        components.value_table([
             {"Rule": "Position size", "Value": f"{config.get('lots', .01):g} lot"},
             {"Rule": "Daily entry attempts", "Value": f"{config.get('max_entries', 5)} maximum"},
             {"Rule": "Daily budget", "Value": budget_rule},
             {"Rule": "New trade cost reserve", "Value": "20% of estimated stop loss"},
             {"Rule": "Duplicate protection", "Value": "Account, candle, and order journal"},
             {"Rule": "Stop / target", "Value": "Attached to broker order"},
-        ], hide_index=True, width="stretch")
+        ])
         st.caption("This page shows current values. Edit fixed trade settings in Automation center; calculated amounts remain read-only.")
     with right:
         components.section("Broker constraints · " + instrument.name)
-        st.dataframe([
+        components.value_table([
             {"Constraint": "Minimum volume", "Value": getattr(instrument, "volume_min", None)},
             {"Constraint": "Maximum volume", "Value": getattr(instrument, "volume_max", None)},
             {"Constraint": "Volume step", "Value": getattr(instrument, "volume_step", None)},
             {"Constraint": "Contract size", "Value": getattr(instrument, "trade_contract_size", None)},
             {"Constraint": "Minimum stop level", "Value": getattr(instrument, "trade_stops_level", None)},
-        ], hide_index=True, width="stretch")
+        ])
         if broker.is_exness:
             passed, reason = broker.gold.execution_validation(
                 instrument.name, demo=broker.mode(account) == "demo")
